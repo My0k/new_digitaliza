@@ -12,34 +12,43 @@ body {
 }
 
 .document-container {
-    height: 500px;
-    overflow: auto;
+    height: 70vh;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    background-color: #f0f0f0;
+    border-radius: 4px;
 }
 
 .document-image {
     max-height: 100%;
+    max-width: 100%;
     object-fit: contain;
-    transition: transform 0.2s ease;
+    transition: transform 0.1s ease;
     transform-origin: center center;
+    cursor: grab;
 }
 
 .document-image.zoomed {
-    cursor: move;
+    cursor: grabbing;
+}
+
+.document-image:active {
+    cursor: grabbing;
 }
 
 .zoom-controls {
     position: absolute;
-    bottom: 10px;
-    right: 10px;
-    background-color: rgba(0, 0, 0, 0.5);
-    border-radius: 5px;
-    padding: 5px;
+    bottom: 15px;
+    right: 15px;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 8px;
+    padding: 8px;
     display: flex;
     z-index: 100;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
 
 .zoom-controls button {
@@ -49,17 +58,48 @@ body {
     font-size: 1.2rem;
     margin: 0 5px;
     cursor: pointer;
+    transition: transform 0.2s, color 0.2s;
 }
 
 .zoom-controls button:hover {
     color: #0d6efd;
+    transform: scale(1.2);
 }
 
 .zoom-level {
     color: white;
-    margin: 0 5px;
+    margin: 0 8px;
     font-size: 0.9rem;
     align-self: center;
+    min-width: 45px;
+    text-align: center;
+}
+
+.drag-indicator {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    opacity: 0.8;
+    transition: opacity 0.5s;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.drag-indicator.fade {
+    opacity: 0;
+}
+
+.container {
+    max-width: 1400px;
+}
+
+.card.h-100 {
+    margin-bottom: 1.5rem;
 }
 
 .no-document {
@@ -101,7 +141,7 @@ body {
 /* Estilos para pantallas pequeñas */
 @media (max-width: 768px) {
     .document-container {
-        height: 300px;
+        height: 50vh;
     }
     
     .card-title {
@@ -116,4 +156,84 @@ body {
     .document-tools button i {
         font-size: 0.8rem;
     }
+}
+
+/* Estilos para el formulario de datos */
+.card-header.bg-dark {
+    background-color: #212529 !important;
+}
+
+#documentDataForm label {
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+#documentDataForm h6 {
+    color: #495057;
+    font-weight: 600;
+}
+
+#processBtn {
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+
+#processBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Hacer que el formulario se mantenga visible al hacer scroll */
+@media (min-width: 992px) {
+    .col-md-3 .card {
+        position: sticky;
+        top: 20px;
+    }
+}
+
+/* Ajustes para pantallas pequeñas */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    
+    #documentDataForm {
+        font-size: 0.9rem;
+    }
+    
+    #documentDataForm .mb-3 {
+        margin-bottom: 0.75rem !important;
+    }
+}
+
+/* Estilos para el resultado del OCR */
+.ocr-result {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+#ocrBtn {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 80px;
+    transition: all 0.3s ease;
+}
+
+#ocrBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.d-flex.gap-2 {
+    margin-top: 1rem;
 }

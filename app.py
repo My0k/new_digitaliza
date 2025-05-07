@@ -13,6 +13,7 @@ import logging
 import random
 import string
 import subprocess
+import json
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'clave_secreta_para_la_aplicacion'
@@ -288,6 +289,55 @@ def scan_documents():
             return jsonify({'success': False, 'error': result.stderr}), 500
     except Exception as e:
         logger.error(f"Error al escanear documentos: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/ocr')
+def run_ocr():
+    """Ejecuta el script de OCR."""
+    try:
+        # Ruta al script de OCR
+        script_path = os.path.join('functions', 'test_ocr.py')
+        
+        # Verificar si el script existe
+        if not os.path.exists(script_path):
+            logger.error(f"Script de OCR no encontrado: {script_path}")
+            return jsonify({'success': False, 'error': 'Script de OCR no encontrado'}), 404
+        
+        # Ejecutar el script
+        logger.info(f"Ejecutando script de OCR: {script_path}")
+        result = subprocess.run(['python3', script_path], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            logger.info("OCR completado con éxito")
+            
+            # Verificar si se generó el archivo de salida
+            output_file = 'output.txt'
+            student_data_file = 'student_data.json'
+            
+            ocr_text = 'No se generó el archivo de salida'
+            student_data = {}
+            
+            if os.path.exists(output_file):
+                # Leer el contenido del archivo
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    ocr_text = f.read()
+            
+            if os.path.exists(student_data_file):
+                # Leer los datos del estudiante
+                with open(student_data_file, 'r', encoding='utf-8') as f:
+                    student_data = json.load(f)
+            
+            return jsonify({
+                'success': True, 
+                'output': result.stdout,
+                'ocr_text': ocr_text,
+                'student_data': student_data
+            }), 200
+        else:
+            logger.error(f"Error al ejecutar el script de OCR: {result.stderr}")
+            return jsonify({'success': False, 'error': result.stderr}), 500
+    except Exception as e:
+        logger.error(f"Error al ejecutar OCR: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 def start_folder_monitor():

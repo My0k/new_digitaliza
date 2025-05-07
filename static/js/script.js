@@ -38,6 +38,16 @@ document.addEventListener('DOMContentLoaded', function() {
         uploadFiles();
     });
     
+    // Botón de procesar documento
+    document.getElementById('processBtn').addEventListener('click', function() {
+        processDocument();
+    });
+    
+    // Botón de OCR
+    document.getElementById('ocrBtn').addEventListener('click', function() {
+        runOCR();
+    });
+    
     // Iniciar monitoreo de cambios en la carpeta
     startFolderMonitoring();
     
@@ -273,7 +283,7 @@ function updateImagesUI(imagesData) {
                     cardBody.innerHTML = `<img src="${image.data}" class="img-fluid document-image" alt="${image.name}">`;
                     
                     // Reinicializar zoom para esta imagen
-                    const container = cardBody.closest('.document-container');
+                    const container = cardBody;
                     if (container && !container.querySelector('.zoom-controls')) {
                         // Si no hay controles de zoom, inicializar
                         initializeZoom();
@@ -288,10 +298,14 @@ function updateImagesUI(imagesData) {
                 </div>`;
                 
                 // Eliminar controles de zoom si existen
-                const container = cardBody.closest('.document-container');
+                const container = cardBody;
                 const zoomControls = container.querySelector('.zoom-controls');
                 if (zoomControls) {
                     zoomControls.remove();
+                }
+                const dragIndicator = container.querySelector('.drag-indicator');
+                if (dragIndicator) {
+                    dragIndicator.remove();
                 }
             }
             
@@ -305,16 +319,33 @@ function updateImagesUI(imagesData) {
 function initializeZoom() {
     // Añadir controles de zoom a cada contenedor de documento
     document.querySelectorAll('.document-container').forEach(container => {
+        // Limpiar controles existentes si los hay
+        const existingControls = container.querySelector('.zoom-controls');
+        if (existingControls) {
+            existingControls.remove();
+        }
+        
         // Crear controles de zoom
         const zoomControls = document.createElement('div');
         zoomControls.className = 'zoom-controls';
         zoomControls.innerHTML = `
-            <button class="zoom-out-btn"><i class="fas fa-search-minus"></i></button>
+            <button class="zoom-out-btn" title="Reducir"><i class="fas fa-search-minus"></i></button>
             <span class="zoom-level">100%</span>
-            <button class="zoom-in-btn"><i class="fas fa-search-plus"></i></button>
-            <button class="zoom-reset-btn"><i class="fas fa-undo"></i></button>
+            <button class="zoom-in-btn" title="Ampliar"><i class="fas fa-search-plus"></i></button>
+            <button class="zoom-reset-btn" title="Restablecer"><i class="fas fa-undo"></i></button>
         `;
         container.appendChild(zoomControls);
+        
+        // Añadir indicador de arrastre
+        const dragIndicator = document.createElement('div');
+        dragIndicator.className = 'drag-indicator';
+        dragIndicator.textContent = 'Arrastra para mover • Rueda para zoom';
+        container.appendChild(dragIndicator);
+        
+        // Ocultar el indicador después de 3 segundos
+        setTimeout(() => {
+            dragIndicator.classList.add('fade');
+        }, 3000);
         
         // Obtener la imagen si existe
         const image = container.querySelector('.document-image');
@@ -356,23 +387,41 @@ function initializeZoom() {
                     scale = newScale;
                     updateZoomLevel();
                     applyTransform();
+                    
+                    // Mostrar el indicador brevemente al hacer zoom
+                    dragIndicator.classList.remove('fade');
+                    dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
+                    setTimeout(() => {
+                        dragIndicator.classList.add('fade');
+                    }, 1500);
                 }
             });
             
-            // Eventos para arrastrar la imagen cuando está ampliada
+            // Eventos para arrastrar la imagen
             image.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // Prevenir selección de texto
+                isDragging = true;
+                startX = e.clientX - translateX * scale;
+                startY = e.clientY - translateY * scale;
+                image.style.cursor = 'grabbing';
+                
+                // Mostrar el indicador al comenzar a arrastrar
                 if (scale > 1) {
-                    isDragging = true;
-                    startX = e.clientX - translateX;
-                    startY = e.clientY - translateY;
-                    image.style.cursor = 'grabbing';
+                    dragIndicator.classList.remove('fade');
+                    dragIndicator.textContent = 'Arrastrando...';
                 }
             });
             
             document.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    translateX = e.clientX - startX;
-                    translateY = e.clientY - startY;
+                if (isDragging && scale > 1) {
+                    translateX = (e.clientX - startX) / scale;
+                    translateY = (e.clientY - startY) / scale;
+                    
+                    // Limitar el arrastre para que la imagen no se salga demasiado
+                    const maxTranslate = (scale - 1) * 100;
+                    translateX = Math.max(-maxTranslate, Math.min(maxTranslate, translateX));
+                    translateY = Math.max(-maxTranslate, Math.min(maxTranslate, translateY));
+                    
                     applyTransform();
                 }
             });
@@ -380,21 +429,40 @@ function initializeZoom() {
             document.addEventListener('mouseup', () => {
                 if (isDragging) {
                     isDragging = false;
-                    image.style.cursor = 'move';
+                    image.style.cursor = 'grab';
+                    
+                    // Ocultar el indicador después de arrastrar
+                    setTimeout(() => {
+                        dragIndicator.classList.add('fade');
+                    }, 800);
                 }
             });
             
             // Botones de control de zoom
             container.querySelector('.zoom-in-btn').addEventListener('click', () => {
-                scale = Math.min(5, scale + 0.25);
+                scale = Math.min(5, scale + 0.5); // Incremento mayor para zoom más rápido
                 updateZoomLevel();
                 applyTransform();
+                
+                // Mostrar el indicador brevemente
+                dragIndicator.classList.remove('fade');
+                dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
+                setTimeout(() => {
+                    dragIndicator.classList.add('fade');
+                }, 1500);
             });
             
             container.querySelector('.zoom-out-btn').addEventListener('click', () => {
-                scale = Math.max(1, scale - 0.25);
+                scale = Math.max(1, scale - 0.5); // Decremento mayor para zoom más rápido
                 updateZoomLevel();
                 applyTransform();
+                
+                // Mostrar el indicador brevemente
+                dragIndicator.classList.remove('fade');
+                dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
+                setTimeout(() => {
+                    dragIndicator.classList.add('fade');
+                }, 1500);
             });
             
             container.querySelector('.zoom-reset-btn').addEventListener('click', () => {
@@ -403,7 +471,19 @@ function initializeZoom() {
                 translateY = 0;
                 updateZoomLevel();
                 applyTransform();
+                
+                // Mostrar el indicador brevemente
+                dragIndicator.classList.remove('fade');
+                dragIndicator.textContent = 'Vista restablecida';
+                setTimeout(() => {
+                    dragIndicator.classList.add('fade');
+                }, 1500);
             });
+            
+            // Inicializar con un zoom ligeramente mayor para mejor visualización
+            scale = 1.2;
+            updateZoomLevel();
+            applyTransform();
         }
     });
 }
@@ -437,5 +517,193 @@ function scanDocuments() {
             // Restaurar el botón
             scanBtn.innerHTML = originalText;
             scanBtn.disabled = false;
+        });
+}
+
+// Función para procesar el documento con los datos ingresados
+function processDocument() {
+    // Recopilar datos del formulario
+    const formData = {
+        student: {
+            rut: document.getElementById('studentRut').value,
+            name: document.getElementById('studentName').value,
+            email: document.getElementById('studentEmail').value
+        },
+        aval: {
+            rut: document.getElementById('avalRut').value,
+            name: document.getElementById('avalName').value,
+            address: document.getElementById('avalAddress').value,
+            phone: document.getElementById('avalPhone').value,
+            relationship: document.getElementById('avalRelationship').value
+        }
+    };
+    
+    // Validar datos básicos
+    if (!formData.student.rut || !formData.student.name || 
+        !formData.aval.rut || !formData.aval.name) {
+        alert('Por favor complete los campos obligatorios (RUT y Nombre) tanto del estudiante como del aval.');
+        return;
+    }
+    
+    // Mostrar indicador de carga
+    const processBtn = document.getElementById('processBtn');
+    const originalText = processBtn.innerHTML;
+    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Procesando...';
+    processBtn.disabled = true;
+    
+    // Simular procesamiento (aquí se enviarían los datos al servidor)
+    setTimeout(() => {
+        console.log('Datos del documento a procesar:', formData);
+        
+        // Mostrar resultado (en una aplicación real, esto vendría del servidor)
+        alert('Documento procesado correctamente');
+        
+        // Restaurar el botón
+        processBtn.innerHTML = originalText;
+        processBtn.disabled = false;
+    }, 1500);
+    
+    // En una aplicación real, enviaríamos los datos al servidor:
+    /*
+    fetch('/process_document', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Documento procesado correctamente');
+        } else {
+            alert('Error al procesar el documento: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al procesar el documento');
+    })
+    .finally(() => {
+        // Restaurar el botón
+        processBtn.innerHTML = originalText;
+        processBtn.disabled = false;
+    });
+    */
+}
+
+// Función para ejecutar OCR
+function runOCR() {
+    // Mostrar indicador de carga
+    const ocrBtn = document.getElementById('ocrBtn');
+    const originalText = ocrBtn.innerHTML;
+    ocrBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> OCR...';
+    ocrBtn.disabled = true;
+    
+    // Llamar al endpoint que ejecutará el script
+    fetch('/ocr')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Rellenar SOLO los campos específicos con los datos extraídos
+                if (data.student_data) {
+                    // Rellenar nombre del estudiante
+                    if (data.student_data.nombre) {
+                        document.getElementById('studentName').value = data.student_data.nombre;
+                    }
+                    
+                    // Rellenar RUT del estudiante
+                    if (data.student_data.rut) {
+                        document.getElementById('studentRut').value = data.student_data.rut;
+                    }
+                    
+                    // Rellenar carrera del estudiante
+                    if (data.student_data.carrera) {
+                        const carreraField = document.getElementById('studentCareer');
+                        if (carreraField) {
+                            carreraField.value = data.student_data.carrera;
+                        }
+                    }
+                    
+                    // Rellenar domicilio del estudiante
+                    if (data.student_data.domicilio) {
+                        const domicilioField = document.getElementById('studentAddress');
+                        if (domicilioField) {
+                            domicilioField.value = data.student_data.domicilio;
+                        }
+                    }
+                    
+                    // No tocar ningún otro campo
+                }
+                
+                // Crear modal para mostrar el resultado del OCR
+                const modalHtml = `
+                <div class="modal fade" id="ocrResultModal" tabindex="-1" aria-labelledby="ocrResultModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="alert alert-success mb-3">
+                                    <strong>Datos extraídos:</strong>
+                                    <ul class="mb-0 mt-2">
+                                        <li><strong>Nombre:</strong> ${data.student_data.nombre || 'No encontrado'}</li>
+                                        <li><strong>RUT:</strong> ${data.student_data.rut || 'No encontrado'}</li>
+                                        <li><strong>Carrera:</strong> ${data.student_data.carrera || 'No encontrado'}</li>
+                                        <li><strong>Domicilio:</strong> ${data.student_data.domicilio || 'No encontrado'}</li>
+                                    </ul>
+                                </div>
+                                <h6>Texto completo extraído:</h6>
+                                <pre class="ocr-result">${data.ocr_text}</pre>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                                <button type="button" class="btn btn-primary" id="copyOcrBtn">
+                                    <i class="fas fa-copy me-1"></i> Copiar al portapapeles
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+                
+                // Añadir el modal al DOM
+                const modalContainer = document.createElement('div');
+                modalContainer.innerHTML = modalHtml;
+                document.body.appendChild(modalContainer);
+                
+                // Mostrar el modal
+                const ocrModal = new bootstrap.Modal(document.getElementById('ocrResultModal'));
+                ocrModal.show();
+                
+                // Manejar el botón de copiar
+                document.getElementById('copyOcrBtn').addEventListener('click', function() {
+                    const ocrText = data.ocr_text;
+                    navigator.clipboard.writeText(ocrText).then(() => {
+                        this.innerHTML = '<i class="fas fa-check me-1"></i> Copiado';
+                        setTimeout(() => {
+                            this.innerHTML = '<i class="fas fa-copy me-1"></i> Copiar al portapapeles';
+                        }, 2000);
+                    });
+                });
+                
+                // Eliminar el modal del DOM cuando se cierre
+                document.getElementById('ocrResultModal').addEventListener('hidden.bs.modal', function() {
+                    this.remove();
+                });
+            } else {
+                alert('Error al ejecutar OCR: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error al ejecutar OCR:', error);
+            alert('Error al ejecutar OCR');
+        })
+        .finally(() => {
+            // Restaurar el botón
+            ocrBtn.innerHTML = originalText;
+            ocrBtn.disabled = false;
         });
 }
