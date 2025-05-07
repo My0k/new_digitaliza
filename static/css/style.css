@@ -1,0 +1,45 @@
+body {
+    background-color: #f8f9fa;
+}
+
+.document-card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s;
+}
+
+.document-card:hover {
+    transform: translateY(-5px);
+}
+
+.document-container {
+    height: 500px;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.document-image {
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.no-document {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #6c757d;
+}
+
+.document-tools button {
+    margin-left: 5px;
+}
+
+/* Estilos para pantallas pequeñas */
+@media (max-width: 768px) {
+    .document-container {
+        height: 300px;
+    }
+}
