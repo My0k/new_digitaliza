@@ -17,11 +17,49 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
 }
 
 .document-image {
     max-height: 100%;
     object-fit: contain;
+    transition: transform 0.2s ease;
+    transform-origin: center center;
+}
+
+.document-image.zoomed {
+    cursor: move;
+}
+
+.zoom-controls {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 5px;
+    padding: 5px;
+    display: flex;
+    z-index: 100;
+}
+
+.zoom-controls button {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    margin: 0 5px;
+    cursor: pointer;
+}
+
+.zoom-controls button:hover {
+    color: #0d6efd;
+}
+
+.zoom-level {
+    color: white;
+    margin: 0 5px;
+    font-size: 0.9rem;
+    align-self: center;
 }
 
 .no-document {
@@ -37,9 +75,45 @@ body {
     margin-left: 5px;
 }
 
+.card-header.bg-primary {
+    background-color: #0d6efd !important;
+}
+
+.card-header.bg-success {
+    background-color: #198754 !important;
+}
+
+#swapDocsBtn {
+    font-size: 1.1rem;
+    padding: 0.5rem 1.5rem;
+    transition: all 0.3s ease;
+}
+
+#swapDocsBtn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.doc-type-label {
+    font-weight: bold;
+}
+
 /* Estilos para pantallas pequeñas */
 @media (max-width: 768px) {
     .document-container {
         height: 300px;
+    }
+    
+    .card-title {
+        font-size: 1rem;
+    }
+    
+    .document-tools button {
+        padding: 0.2rem 0.4rem;
+        margin-left: 2px;
+    }
+    
+    .document-tools button i {
+        font-size: 0.8rem;
     }
 }

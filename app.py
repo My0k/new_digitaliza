@@ -10,6 +10,9 @@ import base64
 import threading
 import time
 import logging
+import random
+import string
+import subprocess
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'clave_secreta_para_la_aplicacion'
@@ -78,6 +81,14 @@ def get_image_data(image_path):
             'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S')
         }
 
+# Función para generar un nombre de archivo único basado en timestamp y letras aleatorias
+def generate_unique_filename():
+    """Genera un nombre de archivo único con timestamp y 3 letras aleatorias."""
+    timestamp = int(datetime.now().timestamp())
+    # Generar 3 letras aleatorias
+    random_letters = ''.join(random.choices(string.ascii_lowercase, k=3))
+    return f"{timestamp}{random_letters}.jpg"
+
 def check_folder_changes():
     """Monitorea cambios en la carpeta input."""
     global last_folder_modification, folder_monitor_active
@@ -90,20 +101,43 @@ def check_folder_changes():
             if not os.path.exists(app.config['UPLOAD_FOLDER']):
                 ensure_input_folder()
                 
-            # Obtener la última modificación de la carpeta
+            # Obtener la última modificación de la carpeta y renombrar archivos nuevos
             latest_mod_time = 0
+            files_to_rename = []
+            
             for file in os.listdir(app.config['UPLOAD_FOLDER']):
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
+                
+                # Solo procesar archivos JPG
                 if file.lower().endswith(('.jpg', '.jpeg')) and os.path.isfile(file_path):
                     mod_time = os.path.getmtime(file_path)
+                    
+                    # Verificar si el nombre del archivo ya tiene formato de timestamp+letras
+                    filename_without_ext = os.path.splitext(file)[0]
+                    # Verificar si el nombre tiene al menos 13 caracteres (timestamp) y los primeros 10+ son dígitos
+                    if len(filename_without_ext) < 13 or not filename_without_ext[:-3].isdigit():
+                        files_to_rename.append(file_path)
+                    
                     if mod_time > latest_mod_time:
                         latest_mod_time = mod_time
             
+            # Renombrar archivos que no tienen formato correcto
+            for file_path in files_to_rename:
+                try:
+                    old_filename = os.path.basename(file_path)
+                    new_filename = generate_unique_filename()
+                    new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
+                    
+                    # Renombrar el archivo
+                    os.rename(file_path, new_path)
+                    logger.info(f"Archivo renombrado automáticamente: {old_filename} -> {new_filename}")
+                except Exception as e:
+                    logger.error(f"Error al renombrar archivo {file_path}: {str(e)}")
+            
             # Si hay cambios, actualizar la variable global
-            if latest_mod_time > last_folder_modification:
+            if latest_mod_time > last_folder_modification or files_to_rename:
                 last_folder_modification = latest_mod_time
                 logger.info(f"Cambios detectados en la carpeta input: {datetime.fromtimestamp(latest_mod_time)}")
-                # No necesitamos hacer nada más aquí, la interfaz consultará esta variable
             
             # Esperar antes de la siguiente verificación
             time.sleep(2)
@@ -146,10 +180,14 @@ def upload_file():
             continue
         
         if file and file.filename.lower().endswith(('.jpg', '.jpeg')):
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            # Generar un nombre de archivo único
+            new_filename = generate_unique_filename()
+            
+            # Guardar el archivo con el nuevo nombre
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
             file.save(file_path)
-            uploaded_files.append(filename)
+            uploaded_files.append(new_filename)
+            logger.info(f"Archivo subido y renombrado: {file.filename} -> {new_filename}")
     
     if uploaded_files:
         return jsonify({'success': True, 'files': uploaded_files}), 200
@@ -186,11 +224,17 @@ def delete_image(filename):
     """Elimina una imagen específica."""
     try:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+        logger.info(f"Intentando eliminar archivo: {file_path}")
+        
         if os.path.exists(file_path):
             os.remove(file_path)
+            logger.info(f"Archivo eliminado exitosamente: {file_path}")
             return jsonify({'success': True}), 200
+        
+        logger.warning(f"Archivo no encontrado para eliminar: {file_path}")
         return jsonify({'error': 'Archivo no encontrado'}), 404
     except Exception as e:
+        logger.error(f"Error al eliminar archivo {filename}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/rotate/<filename>/<direction>')
@@ -198,6 +242,8 @@ def rotate_image(filename, direction):
     """Rota una imagen en la dirección especificada."""
     try:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+        logger.info(f"Intentando rotar archivo: {file_path} en dirección: {direction}")
+        
         if os.path.exists(file_path):
             with Image.open(file_path) as img:
                 if direction == 'left':
@@ -205,13 +251,44 @@ def rotate_image(filename, direction):
                 elif direction == 'right':
                     rotated = img.rotate(-90, expand=True)
                 else:
+                    logger.warning(f"Dirección de rotación inválida: {direction}")
                     return jsonify({'error': 'Dirección inválida'}), 400
                 
                 rotated.save(file_path)
+                logger.info(f"Archivo rotado exitosamente: {file_path}")
                 return jsonify({'success': True}), 200
+        
+        logger.warning(f"Archivo no encontrado para rotar: {file_path}")
         return jsonify({'error': 'Archivo no encontrado'}), 404
     except Exception as e:
+        logger.error(f"Error al rotar archivo {filename}: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/scan')
+def scan_documents():
+    """Ejecuta el script de escaneo de prueba."""
+    try:
+        # Ruta al script de escaneo
+        script_path = os.path.join('functions', 'gen_test_input.py')
+        
+        # Verificar si el script existe
+        if not os.path.exists(script_path):
+            logger.error(f"Script de escaneo no encontrado: {script_path}")
+            return jsonify({'success': False, 'error': 'Script de escaneo no encontrado'}), 404
+        
+        # Ejecutar el script
+        logger.info(f"Ejecutando script de escaneo: {script_path}")
+        result = subprocess.run(['python3', script_path], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            logger.info("Escaneo completado con éxito")
+            return jsonify({'success': True, 'output': result.stdout}), 200
+        else:
+            logger.error(f"Error al ejecutar el script de escaneo: {result.stderr}")
+            return jsonify({'success': False, 'error': result.stderr}), 500
+    except Exception as e:
+        logger.error(f"Error al escanear documentos: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 def start_folder_monitor():
     """Inicia el hilo de monitoreo de la carpeta."""
