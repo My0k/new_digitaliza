@@ -14,6 +14,10 @@ import random
 import string
 import subprocess
 import json
+import csv
+from PyPDF2 import PdfWriter, PdfReader
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'clave_secreta_para_la_aplicacion'
@@ -366,6 +370,178 @@ def start_folder_monitor():
     monitor_thread = threading.Thread(target=check_folder_changes, daemon=True)
     monitor_thread.start()
     return monitor_thread
+
+@app.route('/buscar_folio/<folio>')
+def buscar_folio(folio):
+    """Busca un folio en el CSV y devuelve los datos asociados."""
+    try:
+        # Importar la función desde el módulo
+        from functions.procesar_documento import buscar_por_folio
+        
+        # Verificar que el archivo CSV existe
+        csv_path = 'db_input.csv'
+        if not os.path.exists(csv_path):
+            error_msg = f"Archivo CSV no encontrado: {csv_path}"
+            logger.error(error_msg)
+            return jsonify({'success': False, 'error': error_msg}), 404
+        
+        # Buscar el folio
+        datos = buscar_por_folio(folio)
+        
+        if datos:
+            return jsonify({'success': True, 'datos': datos}), 200
+        else:
+            # Obtener algunos folios disponibles para ayudar en la depuración
+            folios_disponibles = []
+            try:
+                with open(csv_path, 'r', encoding='utf-8') as file:
+                    csv_reader = csv.DictReader(file)
+                    folios_disponibles = [row.get('folio', '') for row in csv_reader][:5]
+            except Exception as e:
+                logger.error(f"Error al leer folios disponibles: {str(e)}")
+            
+            error_msg = f"Folio '{folio}' no encontrado. Ejemplos de folios disponibles: {folios_disponibles}"
+            logger.warning(error_msg)
+            return jsonify({
+                'success': False, 
+                'error': 'Folio no encontrado',
+                'message': error_msg,
+                'folios_ejemplo': folios_disponibles
+            }), 404
+    except Exception as e:
+        error_msg = f"Error al buscar folio: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/generar_pdf', methods=['POST'])
+def generar_pdf():
+    """Genera un PDF con las imágenes seleccionadas y actualiza el CSV."""
+    try:
+        # Obtener datos del request
+        data = request.json
+        rut_number = data.get('rutNumber', '')
+        rut_dv = data.get('rutDV', '')
+        folio = data.get('folio', '')
+        
+        if not rut_number or not rut_dv or not folio:
+            return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
+        
+        # Crear carpeta para PDFs si no existe
+        pdf_folder = 'pdf_procesado'
+        os.makedirs(pdf_folder, exist_ok=True)
+        
+        # Nombre del archivo PDF
+        filename = f"{rut_number}{rut_dv}_{folio}.pdf"
+        pdf_path = os.path.join(pdf_folder, filename)
+        
+        # Obtener las imágenes más recientes
+        image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=2)
+        
+        if len(image_files) < 2:
+            return jsonify({'success': False, 'error': 'No hay suficientes imágenes para generar el PDF'}), 400
+        
+        # Crear el PDF con las imágenes
+        from PIL import Image
+        from reportlab.lib.utils import ImageReader
+        
+        # Crear un PDF con las imágenes
+        c = canvas.Canvas(pdf_path, pagesize=letter)
+        
+        # IMPORTANTE: Invertir el orden de las imágenes para que el pagaré sea primero
+        # La imagen más reciente (index 0) es la firma, la segunda más reciente (index 1) es el pagaré
+        
+        # Añadir la primera imagen (Pagaré - que está en la posición 1)
+        img1 = Image.open(image_files[1])  # Cambiado de 0 a 1
+        img_width, img_height = img1.size
+        
+        # Ajustar tamaño para que quepa en la página
+        page_width, page_height = letter
+        ratio = min(page_width / img_width, page_height / img_height) * 0.9
+        new_width = img_width * ratio
+        new_height = img_height * ratio
+        
+        # Posicionar en el centro de la página
+        x = (page_width - new_width) / 2
+        y = (page_height - new_height) / 2
+        
+        c.drawImage(ImageReader(img1), x, y, width=new_width, height=new_height)
+        c.showPage()
+        
+        # Añadir la segunda imagen (Firma - que está en la posición 0)
+        img2 = Image.open(image_files[0])  # Cambiado de 1 a 0
+        img_width, img_height = img2.size
+        
+        # Ajustar tamaño para que quepa en la página
+        ratio = min(page_width / img_width, page_height / img_height) * 0.9
+        new_width = img_width * ratio
+        new_height = img_height * ratio
+        
+        # Posicionar en el centro de la página
+        x = (page_width - new_width) / 2
+        y = (page_height - new_height) / 2
+        
+        c.drawImage(ImageReader(img2), x, y, width=new_width, height=new_height)
+        c.showPage()
+        
+        # Guardar el PDF
+        c.save()
+        
+        # Actualizar el CSV con el nombre del documento
+        actualizar_csv(folio, filename)
+        
+        logger.info(f"PDF generado correctamente: {pdf_path}")
+        return jsonify({'success': True, 'filename': filename}), 200
+    
+    except Exception as e:
+        error_msg = f"Error al generar PDF: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+def actualizar_csv(folio, nombre_documento):
+    """Actualiza el CSV con el nombre del documento."""
+    try:
+        csv_path = 'db_input.csv'
+        temp_file = 'db_input_temp.csv'
+        
+        # Verificar si el archivo existe
+        if not os.path.exists(csv_path):
+            logger.error(f"Archivo CSV no encontrado: {csv_path}")
+            return False
+        
+        # Leer el CSV y actualizar la fila correspondiente
+        actualizado = False
+        with open(csv_path, 'r', encoding='utf-8') as file_in, open(temp_file, 'w', newline='', encoding='utf-8') as file_out:
+            csv_reader = csv.DictReader(file_in)
+            fieldnames = csv_reader.fieldnames
+            
+            csv_writer = csv.DictWriter(file_out, fieldnames=fieldnames)
+            csv_writer.writeheader()
+            
+            for row in csv_reader:
+                if row.get('folio') == folio:
+                    row['nombre_documento'] = nombre_documento
+                    actualizado = True
+                csv_writer.writerow(row)
+        
+        # Reemplazar el archivo original con el temporal
+        if actualizado:
+            os.replace(temp_file, csv_path)
+            logger.info(f"CSV actualizado correctamente para el folio {folio}")
+            return True
+        else:
+            os.remove(temp_file)
+            logger.warning(f"No se encontró el folio {folio} en el CSV")
+            return False
+    
+    except Exception as e:
+        logger.error(f"Error al actualizar CSV: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

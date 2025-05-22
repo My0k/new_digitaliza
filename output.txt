@@ -1,7 +1,7 @@
 === RESULTADOS DE OCR ===
 
 === DOCUMENTO 1: PAGARÉ ===
-Archivo: 1747881336ypu.jpg
+Archivo: 1747884339fha.jpg
 Texto extraído:
 FIRMÓ ANTE MÍ al anverso don NICOLÁS IGNACIO MILLA SANDOVAL, Cédula de Identidad
 N220.500.542-0, como Suscriptor, y don LUIS EDUARDO MILLA ARANEDA, Cédula de
@@ -15,7 +15,7 @@ PÚBLICO
 ==================================================
 
 === DOCUMENTO 2: FIRMA ===
-Archivo: 1747881336uvp.jpg
+Archivo: 1747884339gir.jpg
 Texto extraído:
 0
 

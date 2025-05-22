@@ -527,74 +527,146 @@ function scanDocuments() {
 
 // Función para procesar el documento con los datos ingresados
 function processDocument() {
-    // Recopilar datos del formulario
-    const formData = {
-        student: {
-            rut: document.getElementById('studentRut').value,
-            name: document.getElementById('studentName').value,
-            email: document.getElementById('studentEmail').value
-        },
-        aval: {
-            rut: document.getElementById('avalRut').value,
-            name: document.getElementById('avalName').value,
-            address: document.getElementById('avalAddress').value,
-            phone: document.getElementById('avalPhone').value,
-            relationship: document.getElementById('avalRelationship').value
-        }
-    };
+    // Obtener el folio ingresado
+    const folio = document.getElementById('studentFolio').value.trim();
     
-    // Validar datos básicos
-    if (!formData.student.rut || !formData.student.name || 
-        !formData.aval.rut || !formData.aval.name) {
-        alert('Por favor complete los campos obligatorios (RUT y Nombre) tanto del estudiante como del aval.');
+    if (!folio) {
+        alert('Por favor, ingrese un número de folio');
         return;
     }
     
     // Mostrar indicador de carga
     const processBtn = document.getElementById('processBtn');
     const originalText = processBtn.innerHTML;
-    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Procesando...';
+    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
     processBtn.disabled = true;
     
-    // Simular procesamiento (aquí se enviarían los datos al servidor)
-    setTimeout(() => {
-        console.log('Datos del documento a procesar:', formData);
-        
-        // Mostrar resultado (en una aplicación real, esto vendría del servidor)
-        alert('Documento procesado correctamente');
-        
-        // Restaurar el botón
-        processBtn.innerHTML = originalText;
-        processBtn.disabled = false;
-    }, 1500);
+    // Llamar al endpoint para buscar el folio
+    fetch(`/buscar_folio/${folio}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Llenar los campos con los datos obtenidos
+                document.getElementById('studentName').value = data.datos.nombre_estudiante;
+                document.getElementById('avalName').value = data.datos.nombre_aval;
+                document.getElementById('avalRut').value = data.datos.rut_aval;
+                document.getElementById('amount').value = data.datos.monto;
+                document.getElementById('avalEmail').value = data.datos.email_aval;
+                
+                // Mostrar botón de finalizar procesado
+                mostrarBotonFinalizar();
+            } else {
+                alert('Error: ' + (data.error || 'No se encontró el folio especificado'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al procesar el documento');
+        })
+        .finally(() => {
+            // Restaurar el botón
+            processBtn.innerHTML = originalText;
+            processBtn.disabled = false;
+        });
+}
+
+// Función para mostrar el botón de finalizar procesado
+function mostrarBotonFinalizar() {
+    // Verificar si ya existe el botón
+    if (document.getElementById('finishBtn')) {
+        return;
+    }
     
-    // En una aplicación real, enviaríamos los datos al servidor:
-    /*
-    fetch('/process_document', {
+    // Ocultar el botón de procesar documento
+    const processBtn = document.getElementById('processBtn');
+    processBtn.style.display = 'none';
+    
+    // Crear el botón
+    const finishBtn = document.createElement('button');
+    finishBtn.type = 'button';
+    finishBtn.id = 'finishBtn';
+    finishBtn.className = 'btn btn-success btn-lg w-100 mt-3';
+    finishBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Finalizar Procesado';
+    
+    // Añadir evento al botón
+    finishBtn.addEventListener('click', function() {
+        finalizarProcesado();
+    });
+    
+    // Añadir el botón al formulario
+    const form = document.getElementById('documentDataForm');
+    form.appendChild(finishBtn);
+}
+
+// Función para finalizar el procesado
+function finalizarProcesado() {
+    // Obtener los datos necesarios
+    const rutNumber = document.getElementById('studentRutNumber').value.trim();
+    const rutDV = document.getElementById('studentRutDV').value.trim();
+    const folio = document.getElementById('studentFolio').value.trim();
+    
+    // Validar datos
+    if (!rutNumber || !rutDV || !folio) {
+        alert('Faltan datos necesarios (RUT o Folio)');
+        return;
+    }
+    
+    // Mostrar indicador de carga
+    const finishBtn = document.getElementById('finishBtn');
+    const originalText = finishBtn.innerHTML;
+    finishBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando PDF...';
+    finishBtn.disabled = true;
+    
+    // Preparar datos para enviar al servidor
+    const data = {
+        rutNumber: rutNumber,
+        rutDV: rutDV,
+        folio: folio
+    };
+    
+    // Llamar al endpoint para generar el PDF
+    fetch('/generar_pdf', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(data)
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Documento procesado correctamente');
+            alert(`Documento procesado correctamente.\nPDF guardado como: ${data.filename}`);
+            
+            // Restaurar la interfaz para una nueva digitalización
+            document.getElementById('documentDataForm').reset();
+            document.getElementById('studentRutNumber').value = '';
+            document.getElementById('studentRutDV').value = '';
+            document.getElementById('studentFolio').value = '';
+            document.getElementById('studentName').value = '';
+            document.getElementById('avalName').value = '';
+            document.getElementById('avalRut').value = '';
+            document.getElementById('amount').value = '';
+            document.getElementById('avalEmail').value = '';
+            
+            // Quitar el botón de finalizar y mostrar el de procesar
+            finishBtn.remove();
+            document.getElementById('processBtn').style.display = 'block';
+            
+            // Opcional: iniciar una nueva digitalización
+            newDigitalization();
         } else {
-            alert('Error al procesar el documento: ' + data.error);
+            alert('Error al generar el PDF: ' + data.error);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Error al procesar el documento');
+        alert('Error al generar el PDF');
     })
     .finally(() => {
         // Restaurar el botón
-        processBtn.innerHTML = originalText;
-        processBtn.disabled = false;
+        finishBtn.innerHTML = originalText;
+        finishBtn.disabled = false;
     });
-    */
 }
 
 // Función para separar el RUT chileno en número y dígito verificador
