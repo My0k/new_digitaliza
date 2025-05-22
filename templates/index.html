@@ -137,26 +137,26 @@
                             </div>
                             
                             <!-- Campos de solo lectura -->
-                            <h6 class="mt-4 mb-3">Información adicional</h6>
-                            <div class="mb-2">
-                                <label for="studentName" class="form-label">Nombre Estudiante</label>
-                                <input type="text" class="form-control" id="studentName" readonly>
+                            <h6 class="mt-4 mb-3 text-muted">Información adicional</h6>
+                            <div class="mb-2 readonly-section">
+                                <label for="studentName" class="form-label text-muted">Nombre Estudiante</label>
+                                <input type="text" class="form-control readonly-field" id="studentName" readonly>
                             </div>
-                            <div class="mb-2">
-                                <label for="avalName" class="form-label">Nombre Aval</label>
-                                <input type="text" class="form-control" id="avalName" readonly>
+                            <div class="mb-2 readonly-section">
+                                <label for="avalName" class="form-label text-muted">Nombre Aval</label>
+                                <input type="text" class="form-control readonly-field" id="avalName" readonly>
                             </div>
-                            <div class="mb-2">
-                                <label for="avalRut" class="form-label">RUT Aval</label>
-                                <input type="text" class="form-control" id="avalRut" readonly>
+                            <div class="mb-2 readonly-section">
+                                <label for="avalRut" class="form-label text-muted">RUT Aval</label>
+                                <input type="text" class="form-control readonly-field" id="avalRut" readonly>
                             </div>
-                            <div class="mb-2">
-                                <label for="amount" class="form-label">Monto</label>
-                                <input type="text" class="form-control" id="amount" readonly>
+                            <div class="mb-2 readonly-section">
+                                <label for="amount" class="form-label text-muted">Monto</label>
+                                <input type="text" class="form-control readonly-field" id="amount" readonly>
                             </div>
-                            <div class="mb-3">
-                                <label for="avalEmail" class="form-label">Email Aval</label>
-                                <input type="email" class="form-control" id="avalEmail" readonly>
+                            <div class="mb-3 readonly-section">
+                                <label for="avalEmail" class="form-label text-muted">Email Aval</label>
+                                <input type="email" class="form-control readonly-field" id="avalEmail" readonly>
                             </div>
                             
                             <!-- Botones de procesar y OCR -->
@@ -202,6 +202,27 @@
             </div>
         </div>
     </div>
+
+    <!-- Añadir estilos para campos de solo lectura -->
+    <style>
+        .readonly-field {
+            background-color: #f8f9fa;
+            color: #6c757d;
+            cursor: not-allowed;
+            border-color: #dee2e6;
+        }
+        
+        .readonly-field:focus {
+            background-color: #f8f9fa;
+            color: #6c757d;
+            box-shadow: none;
+            border-color: #dee2e6;
+        }
+        
+        .readonly-section {
+            opacity: 0.8;
+        }
+    </style>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>

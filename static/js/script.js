@@ -613,7 +613,7 @@ function splitRut(rutCompleto) {
     return { numero, dv };
 }
 
-// Modificar la función runOCR para separar el RUT
+// Modificar la función runOCR para contraer el texto completo
 function runOCR() {
     // Mostrar indicador de carga
     const ocrBtn = document.getElementById('ocrBtn');
@@ -657,9 +657,23 @@ function runOCR() {
                                         <li><strong>RUT:</strong> ${data.student_data.rut || 'No encontrado'}</li>
                                         <li><strong>Folio:</strong> ${data.student_data.folio || 'No encontrado'}</li>
                                     </ul>
+                                    <div class="mt-3 text-dark fw-bold">
+                                        Revisa los datos en la pantalla principal antes de procesar el documento
+                                    </div>
                                 </div>
-                                <h6>Texto completo extraído:</h6>
-                                <pre class="ocr-result">${data.ocr_text}</pre>
+                                
+                                <div class="mb-3">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOcrText" aria-expanded="false" aria-controls="collapseOcrText">
+                                        <i class="fas fa-plus-circle me-1"></i> Mostrar texto completo extraído
+                                    </button>
+                                </div>
+                                
+                                <div class="collapse" id="collapseOcrText">
+                                    <div class="card card-body">
+                                        <h6>Texto completo extraído:</h6>
+                                        <pre class="ocr-result">${data.ocr_text}</pre>
+                                    </div>
+                                </div>
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
@@ -690,6 +704,16 @@ function runOCR() {
                             this.innerHTML = '<i class="fas fa-copy me-1"></i> Copiar al portapapeles';
                         }, 2000);
                     });
+                });
+                
+                // Cambiar el texto del botón cuando se expande/contrae
+                document.querySelector('[data-bs-toggle="collapse"]').addEventListener('click', function() {
+                    const expanded = this.getAttribute('aria-expanded') === 'true';
+                    if (expanded) {
+                        this.innerHTML = '<i class="fas fa-minus-circle me-1"></i> Ocultar texto completo extraído';
+                    } else {
+                        this.innerHTML = '<i class="fas fa-plus-circle me-1"></i> Mostrar texto completo extraído';
+                    }
                 });
                 
                 // Eliminar el modal del DOM cuando se cierre
