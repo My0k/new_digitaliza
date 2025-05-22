@@ -1,7 +1,15 @@
 Campos que necesitan extraer
+Campos para rellenar
 
 Nombre de documento
 
 ¿Clasificación? ¿Necesitan clasificar los documentos en carpetas?
 
-Levantar que windows, modelos de scaner, pantallazos del software de scaneo, ejemplos de pagaré, idealmente si hay otros modelos, sucios, dañados etc
+
+
+Levantar que windows, modelos de scaner, pantallazos del software de scaneo, ejemplos de pagaré, 
+
+idealmente si hay otros modelos, sucios, dañados etc
+
+
+Consultar procedimiento actual

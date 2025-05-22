@@ -53,6 +53,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Inicializar zoom en imágenes
     initializeZoom();
+
+    // Añadir evento para el botón de Nueva Digitalización
+    document.getElementById('newDigitalizationBtn').addEventListener('click', function() {
+        newDigitalization();
+    });
 });
 
 // Variable para almacenar la última modificación conocida
@@ -592,7 +597,23 @@ function processDocument() {
     */
 }
 
-// Función para ejecutar OCR
+// Función para separar el RUT chileno en número y dígito verificador
+function splitRut(rutCompleto) {
+    if (!rutCompleto) return { numero: '', dv: '' };
+    
+    // Eliminar puntos y guiones
+    let rutLimpio = rutCompleto.replace(/\./g, '').replace(/-/g, '');
+    
+    // Obtener el dígito verificador (último carácter)
+    const dv = rutLimpio.slice(-1);
+    
+    // Obtener el número (todo excepto el último carácter)
+    const numero = rutLimpio.slice(0, -1);
+    
+    return { numero, dv };
+}
+
+// Modificar la función runOCR para separar el RUT
 function runOCR() {
     // Mostrar indicador de carga
     const ocrBtn = document.getElementById('ocrBtn');
@@ -605,35 +626,19 @@ function runOCR() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Rellenar SOLO los campos específicos con los datos extraídos
+                // Rellenar SOLO los campos RUT y Folio con los datos extraídos
                 if (data.student_data) {
-                    // Rellenar nombre del estudiante
-                    if (data.student_data.nombre) {
-                        document.getElementById('studentName').value = data.student_data.nombre;
-                    }
-                    
-                    // Rellenar RUT del estudiante
+                    // Separar y rellenar RUT del estudiante
                     if (data.student_data.rut) {
-                        document.getElementById('studentRut').value = data.student_data.rut;
+                        const rutParts = splitRut(data.student_data.rut);
+                        document.getElementById('studentRutNumber').value = rutParts.numero;
+                        document.getElementById('studentRutDV').value = rutParts.dv;
                     }
                     
-                    // Rellenar carrera del estudiante
-                    if (data.student_data.carrera) {
-                        const carreraField = document.getElementById('studentCareer');
-                        if (carreraField) {
-                            carreraField.value = data.student_data.carrera;
-                        }
+                    // Rellenar folio del estudiante
+                    if (data.student_data.folio) {
+                        document.getElementById('studentFolio').value = data.student_data.folio;
                     }
-                    
-                    // Rellenar domicilio del estudiante
-                    if (data.student_data.domicilio) {
-                        const domicilioField = document.getElementById('studentAddress');
-                        if (domicilioField) {
-                            domicilioField.value = data.student_data.domicilio;
-                        }
-                    }
-                    
-                    // No tocar ningún otro campo
                 }
                 
                 // Crear modal para mostrar el resultado del OCR
@@ -649,10 +654,8 @@ function runOCR() {
                                 <div class="alert alert-success mb-3">
                                     <strong>Datos extraídos:</strong>
                                     <ul class="mb-0 mt-2">
-                                        <li><strong>Nombre:</strong> ${data.student_data.nombre || 'No encontrado'}</li>
                                         <li><strong>RUT:</strong> ${data.student_data.rut || 'No encontrado'}</li>
-                                        <li><strong>Carrera:</strong> ${data.student_data.carrera || 'No encontrado'}</li>
-                                        <li><strong>Domicilio:</strong> ${data.student_data.domicilio || 'No encontrado'}</li>
+                                        <li><strong>Folio:</strong> ${data.student_data.folio || 'No encontrado'}</li>
                                     </ul>
                                 </div>
                                 <h6>Texto completo extraído:</h6>
@@ -705,5 +708,40 @@ function runOCR() {
             // Restaurar el botón
             ocrBtn.innerHTML = originalText;
             ocrBtn.disabled = false;
+        });
+}
+
+// Función para iniciar una nueva digitalización (sin confirmación)
+function newDigitalization() {
+    // Mostrar indicador de carga
+    const newDigBtn = document.getElementById('newDigitalizationBtn');
+    const originalText = newDigBtn.innerHTML;
+    newDigBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+    newDigBtn.disabled = true;
+    
+    // Llamar al endpoint para eliminar las imágenes
+    fetch('/clear_input')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Limpiar todos los campos del formulario
+                document.getElementById('documentDataForm').reset();
+                document.getElementById('studentRutNumber').value = '';
+                document.getElementById('studentRutDV').value = '';
+                document.getElementById('studentFolio').value = '';
+                
+                // Actualizar las imágenes (ahora deberían estar vacías)
+                refreshImages();
+            } else {
+                console.error('Error al iniciar nueva digitalización:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        })
+        .finally(() => {
+            // Restaurar el botón
+            newDigBtn.innerHTML = originalText;
+            newDigBtn.disabled = false;
         });
 }

@@ -340,6 +340,27 @@ def run_ocr():
         logger.error(f"Error al ejecutar OCR: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/clear_input')
+def clear_input():
+    """Elimina todas las imágenes de la carpeta input."""
+    try:
+        input_folder = app.config['UPLOAD_FOLDER']
+        
+        # Contar archivos antes de eliminar
+        files_count = 0
+        for file in os.listdir(input_folder):
+            if file.lower().endswith(('.jpg', '.jpeg')):
+                file_path = os.path.join(input_folder, file)
+                os.remove(file_path)
+                files_count += 1
+                logger.info(f"Archivo eliminado: {file_path}")
+        
+        logger.info(f"Se eliminaron {files_count} archivos de la carpeta input")
+        return jsonify({'success': True, 'message': f'Se eliminaron {files_count} archivos'}), 200
+    except Exception as e:
+        logger.error(f"Error al limpiar la carpeta input: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 def start_folder_monitor():
     """Inicia el hilo de monitoreo de la carpeta."""
     monitor_thread = threading.Thread(target=check_folder_changes, daemon=True)

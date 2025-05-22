@@ -9,24 +9,25 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <header class="bg-dark text-white py-3">
-        <div class="container">
-            <div class="d-flex justify-content-between align-items-center">
-                <h1 class="h3 mb-0">Visor de Documentos</h1>
-                <div class="d-flex">
-                    <button id="scanBtn" class="btn btn-warning me-2">
-                        <i class="fas fa-scanner me-1"></i> Escanear
-                    </button>
-                    <button class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#uploadModal">
-                        <i class="fas fa-upload me-1"></i> Subir
-                    </button>
-                    <button id="refreshBtn" class="btn btn-secondary">
-                        <i class="fas fa-sync-alt me-1"></i> Actualizar
-                    </button>
-                </div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-file-alt me-2"></i>
+                Visor de Documentos
+            </a>
+            <div class="d-flex">
+                <button id="newDigitalizationBtn" class="btn btn-outline-light me-2">
+                    <i class="fas fa-plus-circle me-1"></i> Nueva Digitalización
+                </button>
+                <button id="scanBtn" class="btn btn-outline-light me-2">
+                    <i class="fas fa-scanner me-1"></i> Escanear
+                </button>
+                <button id="refreshBtn" class="btn btn-outline-light">
+                    <i class="fas fa-sync-alt me-1"></i> Actualizar
+                </button>
             </div>
         </div>
-    </header>
+    </nav>
 
     <main class="container-fluid my-4">
         <div class="row">
@@ -117,65 +118,45 @@
             <div class="col-md-3">
                 <div class="card">
                     <div class="card-header bg-dark text-white">
-                        <h5 class="mb-0">Datos del Documento</h5>
+                        <h5 class="card-title mb-0">Datos del Documento</h5>
                     </div>
                     <div class="card-body">
                         <form id="documentDataForm">
-                            <!-- Datos del Estudiante -->
-                            <div class="mb-4">
-                                <h6 class="border-bottom pb-2 mb-3">Datos del Estudiante</h6>
-                                <div class="mb-3">
-                                    <label for="studentRut" class="form-label">RUT</label>
-                                    <input type="text" class="form-control" id="studentRut" placeholder="12.345.678-9">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="studentName" class="form-label">Nombre Completo</label>
-                                    <input type="text" class="form-control" id="studentName" placeholder="Nombre y Apellidos">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="studentCareer" class="form-label">Carrera</label>
-                                    <input type="text" class="form-control" id="studentCareer" placeholder="Carrera">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="studentAddress" class="form-label">Domicilio</label>
-                                    <input type="text" class="form-control" id="studentAddress" placeholder="Dirección completa">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="studentEmail" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="studentEmail" placeholder="correo@ejemplo.com">
+                            <!-- Campos de entrada principales -->
+                            <div class="mb-3">
+                                <label class="form-label">RUT</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="studentRutNumber" placeholder="Ej: 20500542">
+                                    <span class="input-group-text">-</span>
+                                    <input type="text" class="form-control" id="studentRutDV" placeholder="0" style="max-width: 60px;">
                                 </div>
                             </div>
+                            <div class="mb-3">
+                                <label for="studentFolio" class="form-label">Folio</label>
+                                <input type="text" class="form-control" id="studentFolio" placeholder="Número de folio">
+                            </div>
                             
-                            <!-- Datos del Aval -->
-                            <div class="mb-4">
-                                <h6 class="border-bottom pb-2 mb-3">Datos del Aval</h6>
-                                <div class="mb-3">
-                                    <label for="avalRut" class="form-label">RUT</label>
-                                    <input type="text" class="form-control" id="avalRut" placeholder="12.345.678-9">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="avalName" class="form-label">Nombre Completo</label>
-                                    <input type="text" class="form-control" id="avalName" placeholder="Nombre y Apellidos">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="avalAddress" class="form-label">Dirección</label>
-                                    <input type="text" class="form-control" id="avalAddress" placeholder="Calle, número, comuna">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="avalPhone" class="form-label">Teléfono</label>
-                                    <input type="tel" class="form-control" id="avalPhone" placeholder="+56 9 1234 5678">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="avalRelationship" class="form-label">Parentesco</label>
-                                    <select class="form-select" id="avalRelationship">
-                                        <option value="">Seleccionar...</option>
-                                        <option value="padre">Padre</option>
-                                        <option value="madre">Madre</option>
-                                        <option value="hermano">Hermano/a</option>
-                                        <option value="conyuge">Cónyuge</option>
-                                        <option value="otro">Otro</option>
-                                    </select>
-                                </div>
+                            <!-- Campos de solo lectura -->
+                            <h6 class="mt-4 mb-3">Información adicional</h6>
+                            <div class="mb-2">
+                                <label for="studentName" class="form-label">Nombre Estudiante</label>
+                                <input type="text" class="form-control" id="studentName" readonly>
+                            </div>
+                            <div class="mb-2">
+                                <label for="avalName" class="form-label">Nombre Aval</label>
+                                <input type="text" class="form-control" id="avalName" readonly>
+                            </div>
+                            <div class="mb-2">
+                                <label for="avalRut" class="form-label">RUT Aval</label>
+                                <input type="text" class="form-control" id="avalRut" readonly>
+                            </div>
+                            <div class="mb-2">
+                                <label for="amount" class="form-label">Monto</label>
+                                <input type="text" class="form-control" id="amount" readonly>
+                            </div>
+                            <div class="mb-3">
+                                <label for="avalEmail" class="form-label">Email Aval</label>
+                                <input type="email" class="form-control" id="avalEmail" readonly>
                             </div>
                             
                             <!-- Botones de procesar y OCR -->

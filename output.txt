@@ -1,11 +1,11 @@
 === RESULTADOS DE OCR ===
 
 === DOCUMENTO 1: PAGARÉ ===
-Archivo: 1746596100zmq.jpg
+Archivo: 1747881336ypu.jpg
 Texto extraído:
 FIRMÓ ANTE MÍ al anverso don NICOLÁS IGNACIO MILLA SANDOVAL, Cédula de Identidad
 N220.500.542-0, como Suscriptor, y don LUIS EDUARDO MILLA ARANEDA, Cédula de
-Identidad N210.093.020-K, como Codeudor Solidario.- Temuco, 22 de Marzo del año 2024.-
+identidad N210.093.020-K, como Codeudor Solidario.- Temuco, 22 de Marzo del año 2024.-
 apa/
 
 NOTARIO
@@ -15,7 +15,7 @@ PÚBLICO
 ==================================================
 
 === DOCUMENTO 2: FIRMA ===
-Archivo: 1746596100lkk.jpg
+Archivo: 1747881336uvp.jpg
 Texto extraído:
 0
 

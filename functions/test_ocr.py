@@ -31,7 +31,8 @@ def extract_student_data(text):
         'nombre': '',
         'rut': '',
         'carrera': '',
-        'domicilio': ''
+        'domicilio': '',
+        'folio': ''
     }
     
     # Patrones para buscar los datos
@@ -64,6 +65,18 @@ def extract_student_data(text):
     domicilio_match = re.search(domicilio_pattern, text)
     if domicilio_match:
         data['domicilio'] = domicilio_match.group(1).strip()
+    
+    # Buscar el folio según los criterios especificados
+    # Primero buscar el patrón "; 1234567890" (10 dígitos después de punto y coma)
+    folio_match = re.search(r";\s*(\d{10})", text)
+    
+    # Si no se encuentra, buscar cualquier secuencia de 10 dígitos
+    if not folio_match:
+        folio_match = re.search(r"(\d{10})", text)
+    
+    # Guardar el folio si se encontró
+    if folio_match:
+        data['folio'] = folio_match.group(1).strip()
     
     return data
 
