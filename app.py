@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash
 import os
 import glob
 from datetime import datetime
@@ -18,14 +18,16 @@ import csv
 from PyPDF2 import PdfWriter, PdfReader
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+import functools
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'clave_secreta_para_la_aplicacion'
+app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
 app.config['UPLOAD_FOLDER'] = 'input'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+app.config['PERMANENT_SESSION_LIFETIME'] = 31536000  # 1 año en segundos
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Variable para almacenar la última modificación de la carpeta
@@ -150,7 +152,55 @@ def check_folder_changes():
             logger.error(f"Error al monitorear la carpeta: {e}")
             time.sleep(5)  # Esperar más tiempo en caso de error
 
+# Función decoradora para requerir login
+def login_required(func):
+    @functools.wraps(func)
+    def secure_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+        return func(*args, **kwargs)
+    return secure_function
+
+# Función para verificar credenciales
+def check_credentials(username, password):
+    try:
+        with open('users.csv', 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            for row in csv_reader:
+                if row['user'] == username and row['pass'] == password:
+                    return True
+        return False
+    except Exception as e:
+        logger.error(f"Error al verificar credenciales: {str(e)}")
+        return False
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        if check_credentials(username, password):
+            session.permanent = True
+            session['logged_in'] = True
+            session['username'] = username
+            flash('Has iniciado sesión correctamente', 'success')
+            return redirect(url_for('index'))
+        else:
+            error = 'Usuario o contraseña incorrectos'
+    
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    session.pop('username', None)
+    flash('Has cerrado sesión correctamente', 'info')
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required
 def index():
     """Página principal que muestra las dos imágenes más recientes."""
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
@@ -169,9 +219,10 @@ def index():
             'modified': 'N/A'
         })
     
-    return render_template('index.html', images=images_data)
+    return render_template('index.html', images=images_data, username=session.get('username', ''))
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_file():
     """Maneja la subida de nuevas imágenes."""
     if 'file' not in request.files:
@@ -200,6 +251,7 @@ def upload_file():
         return jsonify({'error': 'No se subieron archivos válidos'}), 400
 
 @app.route('/refresh')
+@login_required
 def refresh_images():
     """Endpoint para actualizar las imágenes sin recargar la página completa."""
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
@@ -225,6 +277,7 @@ def check_updates():
     })
 
 @app.route('/delete/<filename>')
+@login_required
 def delete_image(filename):
     """Elimina una imagen específica."""
     try:
@@ -243,6 +296,7 @@ def delete_image(filename):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/rotate/<filename>/<direction>')
+@login_required
 def rotate_image(filename, direction):
     """Rota una imagen en la dirección especificada."""
     try:
@@ -345,6 +399,7 @@ def run_ocr():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/clear_input')
+@login_required
 def clear_input():
     """Elimina todas las imágenes de la carpeta input."""
     try:
@@ -372,6 +427,7 @@ def start_folder_monitor():
     return monitor_thread
 
 @app.route('/buscar_folio/<folio>')
+@login_required
 def buscar_folio(folio):
     """Busca un folio en el CSV y devuelve los datos asociados."""
     try:
@@ -416,6 +472,7 @@ def buscar_folio(folio):
         return jsonify({'success': False, 'error': error_msg}), 500
 
 @app.route('/generar_pdf', methods=['POST'])
+@login_required
 def generar_pdf():
     """Genera un PDF con las imágenes seleccionadas y actualiza el CSV."""
     try:

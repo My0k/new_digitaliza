@@ -171,6 +171,16 @@
                         </form>
                     </div>
                 </div>
+                
+                <!-- Información de usuario y botón de cierre de sesión -->
+                <div class="mt-3 text-end">
+                    <small class="text-muted">
+                        Usuario: {{ username }}
+                        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary ms-2">
+                            <i class="fas fa-sign-out-alt"></i> Cerrar sesión
+                        </a>
+                    </small>
+                </div>
             </div>
         </div>
     </main>
