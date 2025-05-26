@@ -24,6 +24,7 @@ def check_tesseract_installed():
 
 def extract_student_data(ocr_text):
     """Extrae información del estudiante desde el texto OCR."""
+    print("=== EJECUTANDO VERSIÓN CORREGIDA DEL EXTRACTOR (v2) ===")
     data = {}
     
     # Patrón para RUT: Busca algo como "RUT: 12345678-9" o "12.345.678-9"
@@ -40,20 +41,26 @@ def extract_student_data(ocr_text):
         matches = re.findall(pattern, ocr_text)
         all_ruts.extend(matches)
     
+    print(f"Todos los RUTs encontrados: {all_ruts}")
+    
     # Filtrar RUTs que comienzan con 7 (institucionales)
     valid_ruts = []
     for rut in all_ruts:
         # Limpiar el RUT para verificar el primer dígito
-        clean_rut = rut.replace(".", "").replace("-", "")
-        if not clean_rut.startswith('7'):
+        clean_rut = rut.replace(".", "").replace("-", "").strip()
+        print(f"Evaluando RUT: {rut}, limpio: {clean_rut}")
+        if clean_rut and not clean_rut[0] == '7':
+            print(f"  - Válido (no comienza con 7)")
             valid_ruts.append(rut)
+        else:
+            print(f"  - Ignorado (comienza con 7 o está vacío)")
     
     # Usar el primer RUT válido encontrado
     if valid_ruts:
         data['rut'] = valid_ruts[0]
-        print(f"RUT válido encontrado (no institucional): {data['rut']}")
+        print(f"RUT válido seleccionado (no institucional): {data['rut']}")
     elif all_ruts:
-        print(f"Solo se encontraron RUTs institucionales (que comienzan con 7): {all_ruts}")
+        print(f"ADVERTENCIA: Solo se encontraron RUTs institucionales. No se asignará ninguno.")
     else:
         print("No se encontraron RUTs en el texto")
     
@@ -89,6 +96,12 @@ def extract_student_data(ocr_text):
                     break
     
     print(f"Datos extraídos: {data}")
+    
+    # Verificación explícita para RUTs institucionales
+    if 'rut' in data and data['rut'].replace('.', '').replace('-', '').strip().startswith('7'):
+        print(f"CORRECCIÓN FINAL: Eliminando RUT institucional: {data['rut']}")
+        del data['rut']
+    
     return data
 
 def perform_ocr():
