@@ -34,23 +34,30 @@ def extract_student_data(ocr_text):
         r'(\d{7,8}-[\dkK])'
     ]
     
+    # Encontrar todos los RUTs en el texto
+    all_ruts = []
     for pattern in rut_patterns:
         matches = re.findall(pattern, ocr_text)
-        if matches:
-            data['rut'] = matches[0]
-            break
+        all_ruts.extend(matches)
+    
+    # Filtrar RUTs que comienzan con 7 (institucionales)
+    valid_ruts = []
+    for rut in all_ruts:
+        # Limpiar el RUT para verificar el primer dígito
+        clean_rut = rut.replace(".", "").replace("-", "")
+        if not clean_rut.startswith('7'):
+            valid_ruts.append(rut)
+    
+    # Usar el primer RUT válido encontrado
+    if valid_ruts:
+        data['rut'] = valid_ruts[0]
+        print(f"RUT válido encontrado (no institucional): {data['rut']}")
+    elif all_ruts:
+        print(f"Solo se encontraron RUTs institucionales (que comienzan con 7): {all_ruts}")
+    else:
+        print("No se encontraron RUTs en el texto")
     
     # Patrón para folio: Primero buscamos el formato específico "; XXXXXXXXXX" (10 dígitos)
-    folio_patterns = [
-        r';\s*(\d{10})',  # Patrón prioritario: punto y coma seguido de 10 dígitos
-        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d{10})',
-        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d{10})',
-        r'[Nn][°º]\s*[:-]?\s*(\d{10})',
-        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d+)',
-        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d+)',
-        r'[Nn][°º]\s*[:-]?\s*(\d+)'
-    ]
-    
     # Primero buscar el patrón específico de punto y coma
     semicolon_match = re.search(r';\s*(\d{10})', ocr_text)
     if semicolon_match:
@@ -64,6 +71,16 @@ def extract_student_data(ocr_text):
             print(f"Folio encontrado como secuencia de 10 dígitos: {data['folio']}")
         else:
             # Si no hay secuencia de 10 dígitos, buscar otros patrones
+            folio_patterns = [
+                r';\s*(\d{10})',  # Patrón prioritario: punto y coma seguido de 10 dígitos
+                r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d{10})',
+                r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d{10})',
+                r'[Nn][°º]\s*[:-]?\s*(\d{10})',
+                r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d+)',
+                r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d+)',
+                r'[Nn][°º]\s*[:-]?\s*(\d+)'
+            ]
+            
             for pattern in folio_patterns:
                 matches = re.findall(pattern, ocr_text)
                 if matches:
