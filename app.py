@@ -49,13 +49,14 @@ def ensure_input_folder():
 # Inicializar la carpeta de entrada
 ensure_input_folder()
 
-def get_latest_images(folder='input', count=2):
-    """Obtiene las rutas de las imágenes más recientes en la carpeta especificada."""
+def get_latest_images(folder='input', count=None):
+    """Obtiene las rutas de las imágenes en la carpeta especificada.
+    Si count es None, devuelve todas las imágenes disponibles."""
     try:
         files = glob.glob(os.path.join(folder, '*.jpg')) + glob.glob(os.path.join(folder, '*.jpeg'))
         # Ordenar archivos por fecha de modificación (más reciente primero)
         files.sort(key=os.path.getmtime, reverse=True)
-        return files[:count]
+        return files[:count] if count is not None else files
     except Exception as e:
         logger.error(f"Error al obtener imágenes: {e}")
         return []
@@ -202,7 +203,7 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    """Página principal que muestra las dos imágenes más recientes."""
+    """Página principal que muestra todas las imágenes disponibles."""
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
     
     # Preparar datos de imágenes
@@ -210,10 +211,10 @@ def index():
     for img_path in latest_images:
         images_data.append(get_image_data(img_path))
     
-    # Si no hay suficientes imágenes, añadir placeholders
-    while len(images_data) < 2:
+    # Si no hay imágenes, mostrar mensaje
+    if not images_data:
         images_data.append({
-            'name': 'No hay imagen disponible',
+            'name': 'No hay imágenes disponibles',
             'path': None,
             'data': None,
             'modified': 'N/A'
@@ -257,9 +258,10 @@ def refresh_images():
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
     images_data = [get_image_data(img) for img in latest_images]
     
-    while len(images_data) < 2:
+    # Si no hay imágenes, mostrar mensaje
+    if not images_data:
         images_data.append({
-            'name': 'No hay imagen disponible',
+            'name': 'No hay imágenes disponibles',
             'path': None,
             'data': None,
             'modified': 'N/A'
@@ -481,6 +483,7 @@ def generar_pdf():
         rut_number = data.get('rutNumber', '')
         rut_dv = data.get('rutDV', '')
         folio = data.get('folio', '')
+        selected_images = data.get('selectedImages', [])
         
         if not rut_number or not rut_dv or not folio:
             return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
@@ -493,11 +496,15 @@ def generar_pdf():
         filename = f"{rut_number}{rut_dv}_{folio}.pdf"
         pdf_path = os.path.join(pdf_folder, filename)
         
-        # Obtener las imágenes más recientes
-        image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=2)
+        # Si no se especificaron imágenes, usar todas las disponibles
+        if not selected_images:
+            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
+        else:
+            # Usar las imágenes seleccionadas
+            image_files = [os.path.join(app.config['UPLOAD_FOLDER'], img) for img in selected_images]
         
-        if len(image_files) < 2:
-            return jsonify({'success': False, 'error': 'No hay suficientes imágenes para generar el PDF'}), 400
+        if not image_files:
+            return jsonify({'success': False, 'error': 'No hay imágenes para generar el PDF'}), 400
         
         # Crear el PDF con las imágenes
         from PIL import Image
@@ -506,41 +513,23 @@ def generar_pdf():
         # Crear un PDF con las imágenes
         c = canvas.Canvas(pdf_path, pagesize=letter)
         
-        # IMPORTANTE: Invertir el orden de las imágenes para que el pagaré sea primero
-        # La imagen más reciente (index 0) es la firma, la segunda más reciente (index 1) es el pagaré
-        
-        # Añadir la primera imagen (Pagaré - que está en la posición 1)
-        img1 = Image.open(image_files[1])  # Cambiado de 0 a 1
-        img_width, img_height = img1.size
-        
-        # Ajustar tamaño para que quepa en la página
-        page_width, page_height = letter
-        ratio = min(page_width / img_width, page_height / img_height) * 0.9
-        new_width = img_width * ratio
-        new_height = img_height * ratio
-        
-        # Posicionar en el centro de la página
-        x = (page_width - new_width) / 2
-        y = (page_height - new_height) / 2
-        
-        c.drawImage(ImageReader(img1), x, y, width=new_width, height=new_height)
-        c.showPage()
-        
-        # Añadir la segunda imagen (Firma - que está en la posición 0)
-        img2 = Image.open(image_files[0])  # Cambiado de 1 a 0
-        img_width, img_height = img2.size
-        
-        # Ajustar tamaño para que quepa en la página
-        ratio = min(page_width / img_width, page_height / img_height) * 0.9
-        new_width = img_width * ratio
-        new_height = img_height * ratio
-        
-        # Posicionar en el centro de la página
-        x = (page_width - new_width) / 2
-        y = (page_height - new_height) / 2
-        
-        c.drawImage(ImageReader(img2), x, y, width=new_width, height=new_height)
-        c.showPage()
+        # Añadir cada imagen como una página del PDF
+        for img_path in image_files:
+            img = Image.open(img_path)
+            img_width, img_height = img.size
+            
+            # Ajustar tamaño para que quepa en la página
+            page_width, page_height = letter
+            ratio = min(page_width / img_width, page_height / img_height) * 0.9
+            new_width = img_width * ratio
+            new_height = img_height * ratio
+            
+            # Posicionar en el centro de la página
+            x = (page_width - new_width) / 2
+            y = (page_height - new_height) / 2
+            
+            c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+            c.showPage()
         
         # Guardar el PDF
         c.save()

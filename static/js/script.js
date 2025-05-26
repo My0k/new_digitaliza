@@ -28,11 +28,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Botón de intercambio de documentos
-    document.getElementById('swapDocsBtn').addEventListener('click', function() {
-        swapDocuments();
-    });
-    
     // Subida de archivos
     document.getElementById('uploadBtn').addEventListener('click', function() {
         uploadFiles();
@@ -87,6 +82,7 @@ function checkForUpdates() {
 }
 
 // Función para intercambiar documentos
+/*
 function swapDocuments() {
     const container = document.getElementById('documents-container');
     const cards = container.querySelectorAll('.document-card');
@@ -130,57 +126,121 @@ function swapDocuments() {
         console.log('Documentos intercambiados');
     }
 }
+*/
 
 // Función para actualizar las imágenes
 function refreshImages() {
     fetch('/refresh')
         .then(response => response.json())
         .then(data => {
-            updateImagesUI(data);
+            const documentContainer = document.getElementById('documentContainer');
+            documentContainer.innerHTML = ''; // Limpiar contenedor
+            
+            data.forEach((image, index) => {
+                if (!image.data) {
+                    // Si no hay imagen, mostrar mensaje
+                    const noImageDiv = document.createElement('div');
+                    noImageDiv.className = 'col-md-6 mb-4';
+                    noImageDiv.innerHTML = `
+                        <div class="card h-100">
+                            <div class="card-header bg-secondary text-white">
+                                <h5 class="card-title mb-0">No hay imagen disponible</h5>
+                            </div>
+                            <div class="card-body d-flex align-items-center justify-content-center">
+                                <p class="text-muted">No se han subido imágenes</p>
+                            </div>
+                        </div>
+                    `;
+                    documentContainer.appendChild(noImageDiv);
+                } else {
+                    // Crear tarjeta para la imagen
+                    const imageCard = document.createElement('div');
+                    imageCard.className = 'col-md-6 mb-4';
+                    imageCard.innerHTML = `
+                        <div class="card h-100">
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">${image.name}</h5>
+                                <div class="document-tools">
+                                    <button class="btn btn-sm btn-danger delete-btn" data-filename="${image.name}" title="Eliminar">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-light rotate-left" data-filename="${image.name}" title="Rotar izquierda">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-light rotate-right" data-filename="${image.name}" title="Rotar derecha">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body document-container">
+                                <img src="${image.data}" class="img-fluid document-image" alt="${image.name}">
+                            </div>
+                            <div class="card-footer text-muted">
+                                <small>Modificado: ${image.modified}</small>
+                            </div>
+                        </div>
+                    `;
+                    documentContainer.appendChild(imageCard);
+                }
+            });
+            
+            // Añadir eventos a los botones
+            addButtonEvents();
         })
-        .catch(error => {
-            console.error('Error al actualizar imágenes:', error);
-        });
+        .catch(error => console.error('Error al actualizar imágenes:', error));
 }
 
-// Función para rotar una imagen
-function rotateImage(filename, direction) {
-    fetch(`/rotate/${filename}/${direction}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Añadir un parámetro de tiempo para evitar caché
-                const timestamp = new Date().getTime();
-                const imgElements = document.querySelectorAll('.document-image');
-                imgElements.forEach(img => {
-                    if (img.alt === filename) {
-                        const currentSrc = img.src.split('?')[0];
-                        img.src = `${currentSrc}?t=${timestamp}`;
-                    }
-                });
-            } else {
-                alert('Error al rotar la imagen: ' + data.error);
+function addButtonEvents() {
+    // Añadir eventos a los botones de eliminar
+    document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const filename = this.getAttribute('data-filename');
+            if (confirm(`¿Estás seguro de que deseas eliminar el archivo ${filename}?`)) {
+                deleteImage(filename);
             }
-        })
-        .catch(error => {
-            console.error('Error al rotar la imagen:', error);
         });
+    });
+    
+    // Añadir eventos a los botones de rotar
+    document.querySelectorAll('.rotate-left').forEach(button => {
+        button.addEventListener('click', function() {
+            const filename = this.getAttribute('data-filename');
+            rotateImage(filename, 'left');
+        });
+    });
+    
+    document.querySelectorAll('.rotate-right').forEach(button => {
+        button.addEventListener('click', function() {
+            const filename = this.getAttribute('data-filename');
+            rotateImage(filename, 'right');
+        });
+    });
 }
 
-// Función para eliminar una imagen
 function deleteImage(filename) {
     fetch(`/delete/${filename}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                refreshImages();
+                refreshImages(); // Actualizar la vista después de eliminar
             } else {
                 alert('Error al eliminar la imagen: ' + data.error);
             }
         })
-        .catch(error => {
-            console.error('Error al eliminar la imagen:', error);
-        });
+        .catch(error => console.error('Error al eliminar imagen:', error));
+}
+
+function rotateImage(filename, direction) {
+    fetch(`/rotate/${filename}/${direction}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                refreshImages(); // Actualizar la vista después de rotar
+            } else {
+                alert('Error al rotar la imagen: ' + data.error);
+            }
+        })
+        .catch(error => console.error('Error al rotar imagen:', error));
 }
 
 // Función para subir archivos
@@ -251,246 +311,6 @@ function showUploadStatus(message, type) {
     statusElement.textContent = message;
     statusElement.className = `alert alert-${type}`;
     statusElement.classList.remove('d-none');
-}
-
-// Función para actualizar la interfaz con las nuevas imágenes
-function updateImagesUI(imagesData) {
-    const documentCards = document.querySelectorAll('.document-card');
-    
-    imagesData.forEach((image, index) => {
-        if (index < documentCards.length) {
-            const card = documentCards[index];
-            
-            // Actualizar nombre de archivo (manteniendo la etiqueta de tipo)
-            card.querySelector('.doc-filename').textContent = image.name;
-            
-            // Actualizar botones
-            const buttons = card.querySelectorAll('button');
-            buttons.forEach(button => {
-                if (button.classList.contains('rotate-btn') || button.classList.contains('delete-btn')) {
-                    button.setAttribute('data-filename', image.name);
-                    button.disabled = !image.path;
-                }
-            });
-            
-            // Actualizar imagen
-            const cardBody = card.querySelector('.card-body');
-            const hadImage = cardBody.querySelector('.document-image') !== null;
-            
-            if (image.data) {
-                // Si hay una imagen
-                if (hadImage) {
-                    // Actualizar imagen existente
-                    cardBody.querySelector('.document-image').src = image.data;
-                    cardBody.querySelector('.document-image').alt = image.name;
-                } else {
-                    // Crear nueva imagen
-                    cardBody.innerHTML = `<img src="${image.data}" class="img-fluid document-image" alt="${image.name}">`;
-                    
-                    // Reinicializar zoom para esta imagen
-                    const container = cardBody;
-                    if (container && !container.querySelector('.zoom-controls')) {
-                        // Si no hay controles de zoom, inicializar
-                        initializeZoom();
-                    }
-                }
-            } else {
-                // Si no hay imagen
-                cardBody.innerHTML = `
-                <div class="no-document">
-                    <i class="fas fa-file-image fa-5x text-muted"></i>
-                    <p class="mt-3">No hay documento disponible</p>
-                </div>`;
-                
-                // Eliminar controles de zoom si existen
-                const container = cardBody;
-                const zoomControls = container.querySelector('.zoom-controls');
-                if (zoomControls) {
-                    zoomControls.remove();
-                }
-                const dragIndicator = container.querySelector('.drag-indicator');
-                if (dragIndicator) {
-                    dragIndicator.remove();
-                }
-            }
-            
-            // Actualizar fecha de modificación
-            card.querySelector('.card-footer small').textContent = 'Modificado: ' + image.modified;
-        }
-    });
-}
-
-// Función para inicializar el zoom en las imágenes
-function initializeZoom() {
-    // Añadir controles de zoom a cada contenedor de documento
-    document.querySelectorAll('.document-container').forEach(container => {
-        // Limpiar controles existentes si los hay
-        const existingControls = container.querySelector('.zoom-controls');
-        if (existingControls) {
-            existingControls.remove();
-        }
-        
-        // Crear controles de zoom
-        const zoomControls = document.createElement('div');
-        zoomControls.className = 'zoom-controls';
-        zoomControls.innerHTML = `
-            <button class="zoom-out-btn" title="Reducir"><i class="fas fa-search-minus"></i></button>
-            <span class="zoom-level">100%</span>
-            <button class="zoom-in-btn" title="Ampliar"><i class="fas fa-search-plus"></i></button>
-            <button class="zoom-reset-btn" title="Restablecer"><i class="fas fa-undo"></i></button>
-        `;
-        container.appendChild(zoomControls);
-        
-        // Añadir indicador de arrastre
-        const dragIndicator = document.createElement('div');
-        dragIndicator.className = 'drag-indicator';
-        dragIndicator.textContent = 'Arrastra para mover • Rueda para zoom';
-        container.appendChild(dragIndicator);
-        
-        // Ocultar el indicador después de 3 segundos
-        setTimeout(() => {
-            dragIndicator.classList.add('fade');
-        }, 3000);
-        
-        // Obtener la imagen si existe
-        const image = container.querySelector('.document-image');
-        if (image) {
-            // Inicializar variables de zoom
-            let scale = 1;
-            let isDragging = false;
-            let startX, startY, translateX = 0, translateY = 0;
-            
-            // Actualizar el nivel de zoom mostrado
-            const updateZoomLevel = () => {
-                container.querySelector('.zoom-level').textContent = `${Math.round(scale * 100)}%`;
-            };
-            
-            // Aplicar transformación a la imagen
-            const applyTransform = () => {
-                image.style.transform = `scale(${scale}) translate(${translateX}px, ${translateY}px)`;
-                if (scale > 1) {
-                    image.classList.add('zoomed');
-                } else {
-                    image.classList.remove('zoomed');
-                    translateX = 0;
-                    translateY = 0;
-                }
-            };
-            
-            // Evento de rueda del ratón para zoom
-            container.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const delta = e.deltaY * -0.01;
-                const newScale = Math.max(1, Math.min(5, scale + delta));
-                
-                // Ajustar la posición para hacer zoom hacia el cursor
-                if (newScale !== scale) {
-                    const rect = image.getBoundingClientRect();
-                    const x = (e.clientX - rect.left) / scale;
-                    const y = (e.clientY - rect.top) / scale;
-                    
-                    scale = newScale;
-                    updateZoomLevel();
-                    applyTransform();
-                    
-                    // Mostrar el indicador brevemente al hacer zoom
-                    dragIndicator.classList.remove('fade');
-                    dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
-                    setTimeout(() => {
-                        dragIndicator.classList.add('fade');
-                    }, 1500);
-                }
-            });
-            
-            // Eventos para arrastrar la imagen
-            image.addEventListener('mousedown', (e) => {
-                e.preventDefault(); // Prevenir selección de texto
-                isDragging = true;
-                startX = e.clientX - translateX * scale;
-                startY = e.clientY - translateY * scale;
-                image.style.cursor = 'grabbing';
-                
-                // Mostrar el indicador al comenzar a arrastrar
-                if (scale > 1) {
-                    dragIndicator.classList.remove('fade');
-                    dragIndicator.textContent = 'Arrastrando...';
-                }
-            });
-            
-            document.addEventListener('mousemove', (e) => {
-                if (isDragging && scale > 1) {
-                    translateX = (e.clientX - startX) / scale;
-                    translateY = (e.clientY - startY) / scale;
-                    
-                    // Limitar el arrastre para que la imagen no se salga demasiado
-                    const maxTranslate = (scale - 1) * 100;
-                    translateX = Math.max(-maxTranslate, Math.min(maxTranslate, translateX));
-                    translateY = Math.max(-maxTranslate, Math.min(maxTranslate, translateY));
-                    
-                    applyTransform();
-                }
-            });
-            
-            document.addEventListener('mouseup', () => {
-                if (isDragging) {
-                    isDragging = false;
-                    image.style.cursor = 'grab';
-                    
-                    // Ocultar el indicador después de arrastrar
-                    setTimeout(() => {
-                        dragIndicator.classList.add('fade');
-                    }, 800);
-                }
-            });
-            
-            // Botones de control de zoom
-            container.querySelector('.zoom-in-btn').addEventListener('click', () => {
-                scale = Math.min(5, scale + 0.5); // Incremento mayor para zoom más rápido
-                updateZoomLevel();
-                applyTransform();
-                
-                // Mostrar el indicador brevemente
-                dragIndicator.classList.remove('fade');
-                dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
-                setTimeout(() => {
-                    dragIndicator.classList.add('fade');
-                }, 1500);
-            });
-            
-            container.querySelector('.zoom-out-btn').addEventListener('click', () => {
-                scale = Math.max(1, scale - 0.5); // Decremento mayor para zoom más rápido
-                updateZoomLevel();
-                applyTransform();
-                
-                // Mostrar el indicador brevemente
-                dragIndicator.classList.remove('fade');
-                dragIndicator.textContent = `Zoom: ${Math.round(scale * 100)}%`;
-                setTimeout(() => {
-                    dragIndicator.classList.add('fade');
-                }, 1500);
-            });
-            
-            container.querySelector('.zoom-reset-btn').addEventListener('click', () => {
-                scale = 1;
-                translateX = 0;
-                translateY = 0;
-                updateZoomLevel();
-                applyTransform();
-                
-                // Mostrar el indicador brevemente
-                dragIndicator.classList.remove('fade');
-                dragIndicator.textContent = 'Vista restablecida';
-                setTimeout(() => {
-                    dragIndicator.classList.add('fade');
-                }, 1500);
-            });
-            
-            // Inicializar con un zoom ligeramente mayor para mejor visualización
-            scale = 1.2;
-            updateZoomLevel();
-            applyTransform();
-        }
-    });
 }
 
 // Función para ejecutar el escaneo (llamar a gen_test_input.py)
@@ -840,4 +660,10 @@ function newDigitalization() {
             newDigBtn.innerHTML = originalText;
             newDigBtn.disabled = false;
         });
+}
+
+// Añadir esta función si no existe
+function initializeZoom() {
+    // Implementar funcionalidad de zoom si es necesario
+    // O dejar vacía si no se necesita esta funcionalidad
 }
