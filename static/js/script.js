@@ -53,10 +53,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('newDigitalizationBtn').addEventListener('click', function() {
         newDigitalization();
     });
+    
+    // Inicializar imágenes y cargar eventos iniciales
+    refreshImages();
 });
 
 // Variable para almacenar la última modificación conocida
 let lastKnownModification = 0;
+
+// Variable global para almacenar el orden de las imágenes
+let imageOrder = [];
 
 // Función para iniciar el monitoreo de la carpeta
 function startFolderMonitoring() {
@@ -133,10 +139,32 @@ function refreshImages() {
     fetch('/refresh')
         .then(response => response.json())
         .then(data => {
+            // Si es la primera carga o tenemos nuevas imágenes, inicializar el orden
+            if (imageOrder.length === 0 || data.length !== imageOrder.length) {
+                imageOrder = data.map(image => image.name);
+            }
+            
+            // Ordenar los datos según el orden actual
+            const orderedData = [];
+            for (const imageName of imageOrder) {
+                const image = data.find(img => img.name === imageName);
+                if (image) {
+                    orderedData.push(image);
+                }
+            }
+            
+            // Añadir cualquier imagen nueva que no esté en nuestro orden
+            for (const image of data) {
+                if (!imageOrder.includes(image.name)) {
+                    orderedData.push(image);
+                    imageOrder.push(image.name);
+                }
+            }
+
             const documentContainer = document.getElementById('documentContainer');
             documentContainer.innerHTML = ''; // Limpiar contenedor
             
-            data.forEach((image, index) => {
+            orderedData.forEach((image, index) => {
                 if (!image.data) {
                     // Si no hay imagen, mostrar mensaje
                     const noImageDiv = document.createElement('div');
@@ -156,11 +184,26 @@ function refreshImages() {
                     // Crear tarjeta para la imagen
                     const imageCard = document.createElement('div');
                     imageCard.className = 'col-md-6 mb-4';
+                    
+                    // Añadir una clase especial a la primera imagen
+                    const isFirstImage = index === 0;
+                    const cardHeaderClass = isFirstImage ? 'bg-success' : 'bg-primary';
+                    const firstImageBadge = isFirstImage ? 
+                        '<span class="badge bg-warning text-dark me-2">Primera</span>' : '';
+                    
                     imageCard.innerHTML = `
-                        <div class="card h-100">
-                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                                <h5 class="card-title mb-0">${image.name}</h5>
+                        <div class="card h-100 ${isFirstImage ? 'border border-success border-3' : ''}">
+                            <div class="card-header ${cardHeaderClass} text-white d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    ${firstImageBadge}${image.name}
+                                </h5>
                                 <div class="document-tools">
+                                    <button class="btn btn-sm btn-secondary move-up-btn" data-filename="${image.name}" title="Mover arriba" ${index === 0 ? 'disabled' : ''}>
+                                        <i class="fas fa-arrow-up"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo" ${index === orderedData.length - 1 ? 'disabled' : ''}>
+                                        <i class="fas fa-arrow-down"></i>
+                                    </button>
                                     <button class="btn btn-sm btn-danger delete-btn" data-filename="${image.name}" title="Eliminar">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -177,6 +220,7 @@ function refreshImages() {
                             </div>
                             <div class="card-footer text-muted">
                                 <small>Modificado: ${image.modified}</small>
+                                <span class="badge bg-info float-end">Página ${index + 1}</span>
                             </div>
                         </div>
                     `;
@@ -184,13 +228,32 @@ function refreshImages() {
                 }
             });
             
-            // Añadir eventos a los botones
+            // Añadir eventos a los botones después de crear los elementos
             addButtonEvents();
         })
         .catch(error => console.error('Error al actualizar imágenes:', error));
 }
 
 function addButtonEvents() {
+    console.log('Añadiendo eventos a los botones');
+    
+    // Botones de movimiento
+    document.querySelectorAll('.move-up-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            console.log('Click en mover arriba');
+            const filename = this.getAttribute('data-filename');
+            moveImage(filename, 'up');
+        });
+    });
+    
+    document.querySelectorAll('.move-down-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            console.log('Click en mover abajo');
+            const filename = this.getAttribute('data-filename');
+            moveImage(filename, 'down');
+        });
+    });
+    
     // Añadir eventos a los botones de eliminar
     document.querySelectorAll('.delete-btn').forEach(button => {
         button.addEventListener('click', function() {
@@ -241,6 +304,22 @@ function rotateImage(filename, direction) {
             }
         })
         .catch(error => console.error('Error al rotar imagen:', error));
+}
+
+// Función para mover una imagen arriba/abajo en el orden
+function moveImage(filename, direction) {
+    const index = imageOrder.indexOf(filename);
+    if (index === -1) return;
+    
+    if (direction === 'up' && index > 0) {
+        // Intercambiar con el elemento anterior
+        [imageOrder[index], imageOrder[index - 1]] = [imageOrder[index - 1], imageOrder[index]];
+        refreshImages();
+    } else if (direction === 'down' && index < imageOrder.length - 1) {
+        // Intercambiar con el elemento siguiente
+        [imageOrder[index], imageOrder[index + 1]] = [imageOrder[index + 1], imageOrder[index]];
+        refreshImages();
+    }
 }
 
 // Función para subir archivos
@@ -441,7 +520,8 @@ function finalizarProcesado() {
     const data = {
         rutNumber: rutNumber,
         rutDV: rutDV,
-        folio: folio
+        folio: folio,
+        selectedImages: imageOrder // Enviar el orden actual de las imágenes
     };
     
     // Llamar al endpoint para generar el PDF
@@ -505,7 +585,7 @@ function splitRut(rutCompleto) {
     return { numero, dv };
 }
 
-// Modificar la función runOCR para contraer el texto completo
+// Mejorar el manejo del texto OCR en el modal
 function runOCR() {
     // Mostrar indicador de carga
     const ocrBtn = document.getElementById('ocrBtn');
@@ -513,15 +593,43 @@ function runOCR() {
     ocrBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> OCR...';
     ocrBtn.disabled = true;
     
-    // Llamar al endpoint que ejecutará el script
-    fetch('/ocr')
+    // Verificar si hay imágenes
+    if (imageOrder.length === 0) {
+        alert('No hay imágenes para procesar');
+        ocrBtn.innerHTML = originalText;
+        ocrBtn.disabled = false;
+        return;
+    }
+    
+    // Obtener el nombre de la primera imagen según el orden actual
+    const firstImageName = imageOrder[0];
+    console.log("Procesando OCR en la primera imagen:", firstImageName);
+    
+    // Añadir un indicador visual temporal
+    const firstImageCard = document.querySelector('.col-md-6:first-child .card');
+    if (firstImageCard) {
+        firstImageCard.classList.add('border-danger', 'border-5');
+        setTimeout(() => {
+            firstImageCard.classList.remove('border-danger', 'border-5');
+        }, 2000);
+    }
+    
+    // Llamar al endpoint que ejecutará el script con la imagen específica
+    fetch(`/ocr?filename=${firstImageName}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                console.log('Datos OCR completos:', data);
+                
+                // Mensaje para mostrar si no se encontraron datos
+                let ocrMessage = '';
+                let dataFound = false;
+                
                 // Rellenar SOLO los campos RUT y Folio con los datos extraídos
                 if (data.student_data) {
                     // Separar y rellenar RUT del estudiante
                     if (data.student_data.rut) {
+                        dataFound = true;
                         const rutParts = splitRut(data.student_data.rut);
                         document.getElementById('studentRutNumber').value = rutParts.numero;
                         document.getElementById('studentRutDV').value = rutParts.dv;
@@ -529,9 +637,17 @@ function runOCR() {
                     
                     // Rellenar folio del estudiante
                     if (data.student_data.folio) {
+                        dataFound = true;
                         document.getElementById('studentFolio').value = data.student_data.folio;
                     }
                 }
+                
+                if (!dataFound) {
+                    ocrMessage = '<div class="alert alert-warning">No se detectaron datos automáticamente. Por favor, ingrese manualmente el RUT y Folio.</div>';
+                }
+                
+                // Asegurarse de que el texto OCR esté disponible y formateado correctamente
+                const ocrText = data.ocr_text || "No se pudo extraer texto de la imagen";
                 
                 // Crear modal para mostrar el resultado del OCR
                 const modalHtml = `
@@ -539,15 +655,16 @@ function runOCR() {
                     <div class="modal-dialog modal-lg modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR</h5>
+                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR (Página 1: ${firstImageName})</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
-                                <div class="alert alert-success mb-3">
+                                ${ocrMessage}
+                                <div class="alert alert-info mb-3">
                                     <strong>Datos extraídos:</strong>
                                     <ul class="mb-0 mt-2">
-                                        <li><strong>RUT:</strong> ${data.student_data.rut || 'No encontrado'}</li>
-                                        <li><strong>Folio:</strong> ${data.student_data.folio || 'No encontrado'}</li>
+                                        <li><strong>RUT:</strong> ${data.student_data?.rut || 'No encontrado'}</li>
+                                        <li><strong>Folio:</strong> ${data.student_data?.folio || 'No encontrado'}</li>
                                     </ul>
                                     <div class="mt-3 text-dark fw-bold">
                                         Revisa los datos en la pantalla principal antes de procesar el documento
@@ -560,10 +677,10 @@ function runOCR() {
                                     </button>
                                 </div>
                                 
-                                <div class="collapse" id="collapseOcrText">
+                                <div class="collapse show" id="collapseOcrText">
                                     <div class="card card-body">
                                         <h6>Texto completo extraído:</h6>
-                                        <pre class="ocr-result">${data.ocr_text}</pre>
+                                        <pre class="ocr-result" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${ocrText}</pre>
                                     </div>
                                 </div>
                             </div>

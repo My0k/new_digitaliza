@@ -41,6 +41,12 @@
                                 <h5 class="card-title mb-0">{{ image.name }}</h5>
                                 <div class="document-tools">
                                     {% if image.path %}
+                                    <button class="btn btn-sm btn-secondary move-up-btn" data-filename="{{ image.name }}" title="Mover arriba">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary move-down-btn" data-filename="{{ image.name }}" title="Mover abajo">
+                                        <i class="fas fa-arrow-down"></i>
+                                    </button>
                                     <button class="btn btn-sm btn-danger delete-btn" data-filename="{{ image.name }}" title="Eliminar">
                                         <i class="fas fa-trash"></i>
                                     </button>

@@ -352,46 +352,49 @@ def scan_documents():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/ocr')
-def run_ocr():
-    """Ejecuta el script de OCR."""
+@login_required
+def execute_ocr():
+    """Ejecuta el script de OCR para extraer texto de las imágenes."""
     try:
-        # Ruta al script de OCR
+        # Verificar si se especificó un archivo específico
+        filename = request.args.get('filename')
+        
+        # Obtener las imágenes a procesar
+        if filename:
+            # Procesar solo la imagen especificada
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            if not os.path.exists(image_path):
+                return jsonify({'success': False, 'error': f'Archivo no encontrado: {filename}'}), 404
+            image_files = [image_path]
+        else:
+            # Si no se especificó, usar la imagen más reciente
+            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=1)
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': 'No hay imágenes disponibles para OCR'}), 400
+        
+        # Procesar la primera imagen
+        image_path = image_files[0]
+        
+        # Ejecutar OCR en la imagen
         script_path = os.path.join('functions', 'test_ocr.py')
-        
-        # Verificar si el script existe
-        if not os.path.exists(script_path):
-            logger.error(f"Script de OCR no encontrado: {script_path}")
-            return jsonify({'success': False, 'error': 'Script de OCR no encontrado'}), 404
-        
-        # Ejecutar el script
-        logger.info(f"Ejecutando script de OCR: {script_path}")
-        result = subprocess.run(['python3', script_path], capture_output=True, text=True)
+        result = subprocess.run(['python', script_path, image_path], 
+                               capture_output=True, text=True, encoding='utf-8')
         
         if result.returncode == 0:
-            logger.info("OCR completado con éxito")
+            # Extraer el texto del OCR
+            ocr_text = result.stdout
             
-            # Verificar si se generó el archivo de salida
-            output_file = 'output.txt'
-            student_data_file = 'student_data.json'
-            
-            ocr_text = 'No se generó el archivo de salida'
-            student_data = {}
-            
-            if os.path.exists(output_file):
-                # Leer el contenido del archivo
-                with open(output_file, 'r', encoding='utf-8') as f:
-                    ocr_text = f.read()
-            
-            if os.path.exists(student_data_file):
-                # Leer los datos del estudiante
-                with open(student_data_file, 'r', encoding='utf-8') as f:
-                    student_data = json.load(f)
+            # Importar la función para extraer datos del estudiante
+            from functions.test_ocr import extract_student_data
+            student_data = extract_student_data(ocr_text)
             
             return jsonify({
                 'success': True, 
                 'output': result.stdout,
                 'ocr_text': ocr_text,
-                'student_data': student_data
+                'student_data': student_data,
+                'processed_file': os.path.basename(image_path)
             }), 200
         else:
             logger.error(f"Error al ejecutar el script de OCR: {result.stderr}")

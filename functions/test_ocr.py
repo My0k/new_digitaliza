@@ -22,62 +22,56 @@ def check_tesseract_installed():
     except FileNotFoundError:
         return False
 
-def extract_student_data(text):
-    """
-    Extrae datos del estudiante del texto OCR.
-    Retorna un diccionario con los datos extraídos.
-    """
-    data = {
-        'nombre': '',
-        'rut': '',
-        'carrera': '',
-        'domicilio': '',
-        'folio': ''
-    }
+def extract_student_data(ocr_text):
+    """Extrae información del estudiante desde el texto OCR."""
+    data = {}
     
-    # Patrones para buscar los datos
-    nombre_pattern = r"NOMBRE DEUDOR\(A\)\s*:\s*([^\n]+)"
-    rut_pattern = r"CEDULA NACIONAL DE IDENTIDAD\s*:\s*([0-9.-]+)"
-    carrera_pattern = r"CARRERA\s*:\s*([^\n]+)"
-    domicilio_pattern = r"DOMICILIO\s*:\s*([^\n]+)"
+    # Patrón para RUT: Busca algo como "RUT: 12345678-9" o "12.345.678-9"
+    rut_patterns = [
+        r'RUT\s*[:-]?\s*(\d{1,2}\.?\d{3}\.?\d{3}-[\dkK])',
+        r'RUT\s*[:-]?\s*(\d{7,8}-[\dkK])',
+        r'(\d{1,2}\.?\d{3}\.?\d{3}-[\dkK])',
+        r'(\d{7,8}-[\dkK])'
+    ]
     
-    # Buscar nombre
-    nombre_match = re.search(nombre_pattern, text)
-    if nombre_match:
-        data['nombre'] = nombre_match.group(1).strip()
+    for pattern in rut_patterns:
+        matches = re.findall(pattern, ocr_text)
+        if matches:
+            data['rut'] = matches[0]
+            break
     
-    # Buscar RUT
-    rut_match = re.search(rut_pattern, text)
-    if rut_match:
-        data['rut'] = rut_match.group(1).strip()
+    # Patrón para folio: Primero buscamos el formato específico "; XXXXXXXXXX" (10 dígitos)
+    folio_patterns = [
+        r';\s*(\d{10})',  # Patrón prioritario: punto y coma seguido de 10 dígitos
+        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d{10})',
+        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d{10})',
+        r'[Nn][°º]\s*[:-]?\s*(\d{10})',
+        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d+)',
+        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d+)',
+        r'[Nn][°º]\s*[:-]?\s*(\d+)'
+    ]
     
-    # Buscar carrera
-    carrera_match = re.search(carrera_pattern, text)
-    if carrera_match:
-        # Limpiar el texto de la carrera (puede contener texto adicional)
-        carrera_text = carrera_match.group(1).strip()
-        # Si hay "pa" u otros textos extraños al final, eliminarlos
-        if " pa" in carrera_text:
-            carrera_text = carrera_text.split(" pa")[0].strip()
-        data['carrera'] = carrera_text
+    # Primero buscar el patrón específico de punto y coma
+    semicolon_match = re.search(r';\s*(\d{10})', ocr_text)
+    if semicolon_match:
+        data['folio'] = semicolon_match.group(1)
+        print(f"Folio encontrado con patrón '; XXXXXXXXXX': {data['folio']}")
+    else:
+        # Si no se encuentra, buscar secuencia de 10 dígitos
+        ten_digit_match = re.search(r'(?<!\d)(\d{10})(?!\d)', ocr_text)
+        if ten_digit_match:
+            data['folio'] = ten_digit_match.group(1)
+            print(f"Folio encontrado como secuencia de 10 dígitos: {data['folio']}")
+        else:
+            # Si no hay secuencia de 10 dígitos, buscar otros patrones
+            for pattern in folio_patterns:
+                matches = re.findall(pattern, ocr_text)
+                if matches:
+                    data['folio'] = matches[0]
+                    print(f"Folio encontrado con patrón alternativo: {data['folio']}")
+                    break
     
-    # Buscar domicilio
-    domicilio_match = re.search(domicilio_pattern, text)
-    if domicilio_match:
-        data['domicilio'] = domicilio_match.group(1).strip()
-    
-    # Buscar el folio según los criterios especificados
-    # Primero buscar el patrón "; 1234567890" (10 dígitos después de punto y coma)
-    folio_match = re.search(r";\s*(\d{10})", text)
-    
-    # Si no se encuentra, buscar cualquier secuencia de 10 dígitos
-    if not folio_match:
-        folio_match = re.search(r"(\d{10})", text)
-    
-    # Guardar el folio si se encontró
-    if folio_match:
-        data['folio'] = folio_match.group(1).strip()
-    
+    print(f"Datos extraídos: {data}")
     return data
 
 def perform_ocr():
@@ -208,5 +202,34 @@ def perform_ocr():
         return False
 
 if __name__ == "__main__":
-    success = perform_ocr()
-    sys.exit(0 if success else 1)
+    # Verificar si se proporcionó una imagen específica como parámetro
+    if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
+        # Modo de procesamiento de una sola imagen (usado por el endpoint de OCR)
+        image_path = sys.argv[1]
+        
+        # Verificar si Tesseract está instalado
+        if not check_tesseract_installed():
+            print("Tesseract OCR no está instalado")
+            sys.exit(1)
+            
+        import pytesseract
+        
+        try:
+            # Abrir la imagen y realizar OCR
+            with Image.open(image_path) as img:
+                ocr_text = pytesseract.image_to_string(img, lang='spa')
+                
+                # Extraer datos del estudiante
+                student_data = extract_student_data(ocr_text)
+                
+                # Imprimir el texto OCR completo (esto será capturado por stdout)
+                print(ocr_text)
+                
+                sys.exit(0)
+        except Exception as e:
+            print(f"Error al procesar la imagen: {str(e)}")
+            sys.exit(1)
+    else:
+        # Modo de procesamiento normal (escaneando toda la carpeta)
+        success = perform_ocr()
+        sys.exit(0 if success else 1)
