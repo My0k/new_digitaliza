@@ -394,50 +394,103 @@ def execute_ocr():
         
         # Procesar la primera imagen
         image_path = image_files[0]
+        logger.info(f"Ejecutando OCR en: {image_path}")
         
-        # Ejecutar OCR en la imagen
+        try:
+            # Verificar si Tesseract está instalado
+            try:
+                import pytesseract
+                pytesseract.get_tesseract_version()
+                logger.info("Tesseract está instalado correctamente")
+            except Exception as te:
+                logger.error(f"Error con Tesseract: {str(te)}")
+                return jsonify({'success': False, 'error': f'Error de Tesseract: {str(te)}'}), 500
+            
+            # Procesamiento directo con pytesseract
+            try:
+                from PIL import Image as PILImage
+                img = PILImage.open(image_path)
+                ocr_text = pytesseract.image_to_string(img, lang='spa')
+                
+                # Importar la función para extraer datos del estudiante
+                from functions.test_ocr import extract_student_data
+                student_data = extract_student_data(ocr_text)
+                
+                return jsonify({
+                    'success': True, 
+                    'output': 'OCR ejecutado directamente',
+                    'ocr_text': ocr_text,
+                    'student_data': student_data,
+                    'processed_file': os.path.basename(image_path)
+                }), 200
+            except Exception as pe:
+                logger.error(f"Error en procesamiento directo: {str(pe)}")
+                # Continuar con el método alternativo
+        
+        except Exception as inner_e:
+            logger.error(f"Error en verificación inicial: {str(inner_e)}")
+        
+        # Método alternativo: ejecutar como proceso separado
         import sys
         script_path = os.path.join('functions', 'test_ocr.py')
-        result = subprocess.run([sys.executable, script_path, image_path], 
-                              capture_output=True, 
-                              text=False)  # Cambiar a False para manejar bytes
+        logger.info(f"Ejecutando script OCR: {script_path} {image_path}")
         
-        # Decodificar la salida manualmente con codificación adecuada para Windows
-        stdout = ""
-        stderr = ""
         try:
-            if result.stdout:
-                stdout = result.stdout.decode('cp1252', errors='replace')
-            if result.stderr:
-                stderr = result.stderr.decode('cp1252', errors='replace')
-        except UnicodeDecodeError:
-            # Fallback a otra codificación si cp1252 falla
-            if result.stdout:
-                stdout = result.stdout.decode('latin-1', errors='replace')
-            if result.stderr:
-                stderr = result.stderr.decode('latin-1', errors='replace')
-        
-        if result.returncode == 0:
-            # Extraer el texto del OCR
-            ocr_text = stdout
+            result = subprocess.run([sys.executable, script_path, image_path], 
+                                  capture_output=True, 
+                                  text=False, timeout=30)  # Añadir timeout de 30 segundos
             
-            # Importar la función para extraer datos del estudiante
-            from functions.test_ocr import extract_student_data
-            student_data = extract_student_data(ocr_text)
+            # Decodificar la salida manualmente con codificación adecuada para Windows
+            stdout = ""
+            stderr = ""
+            try:
+                if result.stdout:
+                    stdout = result.stdout.decode('cp1252', errors='replace')
+                if result.stderr:
+                    stderr = result.stderr.decode('cp1252', errors='replace')
+            except UnicodeDecodeError:
+                # Fallback a otra codificación si cp1252 falla
+                if result.stdout:
+                    stdout = result.stdout.decode('latin-1', errors='replace')
+                if result.stderr:
+                    stderr = result.stderr.decode('latin-1', errors='replace')
             
-            return jsonify({
-                'success': True, 
-                'output': stdout,
-                'ocr_text': ocr_text,
-                'student_data': student_data,
-                'processed_file': os.path.basename(image_path)
-            }), 200
-        else:
-            logger.error(f"Error al ejecutar el script de OCR: {stderr}")
-            return jsonify({'success': False, 'error': stderr}), 500
+            logger.info(f"OCR completado. Código de retorno: {result.returncode}")
+            if stderr:
+                logger.error(f"Error en stderr: {stderr}")
+            
+            if result.returncode == 0:
+                # Extraer el texto del OCR
+                ocr_text = stdout
+                
+                # Importar la función para extraer datos del estudiante
+                from functions.test_ocr import extract_student_data
+                student_data = extract_student_data(ocr_text)
+                
+                return jsonify({
+                    'success': True, 
+                    'output': stdout,
+                    'ocr_text': ocr_text,
+                    'student_data': student_data,
+                    'processed_file': os.path.basename(image_path)
+                }), 200
+            else:
+                error_msg = f"Error al ejecutar el script de OCR (código {result.returncode}): {stderr}"
+                logger.error(error_msg)
+                return jsonify({'success': False, 'error': error_msg}), 500
+        except subprocess.TimeoutExpired:
+            logger.error("El proceso de OCR excedió el tiempo límite (30 segundos)")
+            return jsonify({'success': False, 'error': 'El proceso de OCR excedió el tiempo límite'}), 500
+        except Exception as sub_e:
+            logger.error(f"Error al ejecutar subprocess: {str(sub_e)}")
+            return jsonify({'success': False, 'error': f'Error en subprocess: {str(sub_e)}'}), 500
+            
     except Exception as e:
-        logger.error(f"Error al ejecutar OCR: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_msg = f"Error al ejecutar OCR: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
 
 @app.route('/clear_input')
 @login_required
