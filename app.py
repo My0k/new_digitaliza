@@ -326,8 +326,9 @@ def rotate_image(filename, direction):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/scan')
+@login_required
 def scan_documents():
-    """Ejecuta el script de escaneo de prueba."""
+    """Ejecuta el script de escaneo."""
     try:
         # Ruta al script de escaneo
         script_path = os.path.join('functions', 'gen_test_input.py')
@@ -337,18 +338,36 @@ def scan_documents():
             logger.error(f"Script de escaneo no encontrado: {script_path}")
             return jsonify({'success': False, 'error': 'Script de escaneo no encontrado'}), 404
         
-        # Ejecutar el script
+        # Ejecutar el script usando sys.executable (el python actual)
+        import sys
         logger.info(f"Ejecutando script de escaneo: {script_path}")
-        result = subprocess.run(['python3', script_path], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, script_path], 
+                               capture_output=True, 
+                               text=False)  # Cambiar a False para manejar bytes
+        
+        # Decodificar la salida manualmente con codificación adecuada para Windows
+        stdout = ""
+        stderr = ""
+        try:
+            if result.stdout:
+                stdout = result.stdout.decode('cp1252', errors='replace')
+            if result.stderr:
+                stderr = result.stderr.decode('cp1252', errors='replace')
+        except UnicodeDecodeError:
+            # Fallback a otra codificación si cp1252 falla
+            if result.stdout:
+                stdout = result.stdout.decode('latin-1', errors='replace')
+            if result.stderr:
+                stderr = result.stderr.decode('latin-1', errors='replace')
         
         if result.returncode == 0:
             logger.info("Escaneo completado con éxito")
-            return jsonify({'success': True, 'output': result.stdout}), 200
+            return jsonify({'success': True, 'output': stdout}), 200
         else:
-            logger.error(f"Error al ejecutar el script de escaneo: {result.stderr}")
-            return jsonify({'success': False, 'error': result.stderr}), 500
+            logger.error(f"Error al ejecutar el script de escaneo: {stderr}")
+            return jsonify({'success': False, 'error': stderr}), 500
     except Exception as e:
-        logger.error(f"Error al escanear documentos: {str(e)}")
+        logger.error(f"Error al ejecutar el escaneo: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/ocr')
@@ -377,13 +396,30 @@ def execute_ocr():
         image_path = image_files[0]
         
         # Ejecutar OCR en la imagen
+        import sys
         script_path = os.path.join('functions', 'test_ocr.py')
-        result = subprocess.run(['python', script_path, image_path], 
-                               capture_output=True, text=True, encoding='utf-8')
+        result = subprocess.run([sys.executable, script_path, image_path], 
+                              capture_output=True, 
+                              text=False)  # Cambiar a False para manejar bytes
+        
+        # Decodificar la salida manualmente con codificación adecuada para Windows
+        stdout = ""
+        stderr = ""
+        try:
+            if result.stdout:
+                stdout = result.stdout.decode('cp1252', errors='replace')
+            if result.stderr:
+                stderr = result.stderr.decode('cp1252', errors='replace')
+        except UnicodeDecodeError:
+            # Fallback a otra codificación si cp1252 falla
+            if result.stdout:
+                stdout = result.stdout.decode('latin-1', errors='replace')
+            if result.stderr:
+                stderr = result.stderr.decode('latin-1', errors='replace')
         
         if result.returncode == 0:
             # Extraer el texto del OCR
-            ocr_text = result.stdout
+            ocr_text = stdout
             
             # Importar la función para extraer datos del estudiante
             from functions.test_ocr import extract_student_data
@@ -391,14 +427,14 @@ def execute_ocr():
             
             return jsonify({
                 'success': True, 
-                'output': result.stdout,
+                'output': stdout,
                 'ocr_text': ocr_text,
                 'student_data': student_data,
                 'processed_file': os.path.basename(image_path)
             }), 200
         else:
-            logger.error(f"Error al ejecutar el script de OCR: {result.stderr}")
-            return jsonify({'success': False, 'error': result.stderr}), 500
+            logger.error(f"Error al ejecutar el script de OCR: {stderr}")
+            return jsonify({'success': False, 'error': stderr}), 500
     except Exception as e:
         logger.error(f"Error al ejecutar OCR: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
