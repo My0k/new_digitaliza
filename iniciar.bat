@@ -4,6 +4,9 @@ setlocal EnableDelayedExpansion
 echo ===== Iniciando aplicacion de digitalizacion =====
 echo.
 
+rem Ir al directorio donde está este .bat
+cd /d "%~dp0"
+
 rem Definir ruta del entorno virtual
 set VENV_DIR=%CD%\venv
 
