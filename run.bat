@@ -36,6 +36,27 @@ if %errorlevel% neq 0 (
     echo Tesseract OCR ya está instalado.
 )
 
+echo === Verificando datos de idioma español para Tesseract ===
+if not exist "C:\Program Files\Tesseract-OCR\tessdata\spa.traineddata" (
+    echo Los datos del idioma español no están instalados. Descargando...
+    mkdir "C:\Program Files\Tesseract-OCR\tessdata" 2>nul
+    
+    echo Descargando archivo de datos del idioma español...
+    powershell -Command "(New-Object System.Net.WebClient).DownloadFile('https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata', 'C:\Program Files\Tesseract-OCR\tessdata\spa.traineddata')"
+    
+    if exist "C:\Program Files\Tesseract-OCR\tessdata\spa.traineddata" (
+        echo Datos del idioma español instalados correctamente.
+    ) else (
+        echo Error al descargar los datos del idioma español.
+        echo Por favor, descargue manualmente el archivo spa.traineddata de:
+        echo https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata
+        echo Y colóquelo en: C:\Program Files\Tesseract-OCR\tessdata\
+        pause
+    )
+) else (
+    echo Datos del idioma español ya están instalados.
+)
+
 echo === Cerrando procesos en el puerto %PORT% ===
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%"') do (
     echo Terminando proceso con PID: %%a
@@ -74,8 +95,8 @@ echo Si la aplicación se cierra inmediatamente, puede ejecutarla manualmente co
 echo cd %CD% ^& %VENV_DIR%\Scripts\python.exe app.py
 echo.
 
-rem Inicia Flask en una nueva ventana pero mantiene los mensajes de error visibles
-start "Flask App" cmd /k "cd %CD% && %VENV_DIR%\Scripts\python.exe app.py"
+rem Inicia Flask en una nueva ventana con las variables de entorno configuradas
+start "Flask App" cmd /k "set TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata && cd %CD% && %VENV_DIR%\Scripts\python.exe app.py"
 
 echo === Esperando a que la aplicación inicie ===
 timeout /t 5 /nobreak > nul
