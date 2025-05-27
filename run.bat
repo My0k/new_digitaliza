@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 set PYTHON_PATH=C:\Users\UCT\AppData\Local\Programs\Python\Python312\python.exe
-set VENV_DIR=venv
+set VENV_DIR=%CD%\venv
 set PORT=5000
 
 echo === Verificando si Tesseract OCR está instalado ===
@@ -58,31 +58,32 @@ if not exist "C:\Program Files\Tesseract-OCR\tessdata\spa.traineddata" (
 )
 
 echo === Cerrando procesos en el puerto %PORT% ===
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%"') do (
-    echo Terminando proceso con PID: %%a
-    taskkill /F /PID %%a 2>nul
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% "') do (
+    if not "%%a"=="0" (
+        echo Terminando proceso con PID: %%a
+        taskkill /F /PID %%a 2>nul
+    )
 )
 
 echo === Verificando entorno virtual ===
-if not exist %VENV_DIR%\Scripts\activate (
+if not exist "%VENV_DIR%\Scripts\activate.bat" (
     echo Creando entorno virtual...
-    "%PYTHON_PATH%" -m venv %VENV_DIR%
+    "%PYTHON_PATH%" -m venv "%VENV_DIR%"
 ) else (
     echo Entorno virtual ya existe.
 )
 
 echo === Activando entorno virtual ===
-call %VENV_DIR%\Scripts\activate
+call "%VENV_DIR%\Scripts\activate.bat"
 
 echo === Instalando requisitos ===
-if exist requirements.txt (
-    pip install -r requirements.txt
+if exist "%CD%\requirements.txt" (
+    echo Instalando desde requirements.txt...
+    pip install -r "%CD%\requirements.txt"
 ) else (
     echo Archivo requirements.txt no encontrado.
-    echo Instalando Flask...
-    pip install flask
-    echo Instalando pytesseract...
-    pip install pytesseract Pillow
+    echo Instalando dependencias básicas...
+    pip install flask pytesseract Pillow
 )
 
 echo === Configurando variables de entorno para Tesseract ===
@@ -92,11 +93,11 @@ set PATH=%PATH%;C:\Program Files\Tesseract-OCR
 echo === Iniciando aplicación Flask ===
 echo.
 echo Si la aplicación se cierra inmediatamente, puede ejecutarla manualmente con:
-echo cd %CD% ^& %VENV_DIR%\Scripts\python.exe app.py
+echo cd "%CD%" ^& "%VENV_DIR%\Scripts\python.exe" app.py
 echo.
 
 rem Inicia Flask en una nueva ventana con las variables de entorno configuradas
-start "Flask App" cmd /k "set TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata && cd %CD% && %VENV_DIR%\Scripts\python.exe app.py"
+start "Flask App" cmd /k "set TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata && cd "%CD%" && "%VENV_DIR%\Scripts\python.exe" app.py"
 
 echo === Esperando a que la aplicación inicie ===
 timeout /t 5 /nobreak > nul
