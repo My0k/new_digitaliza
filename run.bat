@@ -42,3 +42,10 @@ start http://localhost:%PORT%
 
 echo === Aplicación iniciada ===
 echo Para detener la aplicación, cierre la ventana de comandos o presione Ctrl+C
+
+echo.
+echo === Manteniendo esta ventana abierta ===
+echo La aplicación Flask está ejecutándose en una ventana separada.
+echo Puede cerrar esta ventana cuando termine de usar la aplicación.
+echo.
+pause
