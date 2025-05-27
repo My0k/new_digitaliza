@@ -5,6 +5,31 @@ set PYTHON_PATH=C:\Users\UCT\AppData\Local\Programs\Python\Python312\python.exe
 set VENV_DIR=venv
 set PORT=5000
 
+echo === Verificando si Tesseract OCR está instalado ===
+where tesseract >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Tesseract OCR no está instalado. Procediendo a instalarlo...
+    
+    echo === Verificando si Chocolatey está instalado ===
+    where choco >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo Instalando Chocolatey...
+        @powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
+        set PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin
+    )
+    
+    echo === Instalando Tesseract OCR mediante Chocolatey ===
+    choco install tesseract -y
+    
+    echo === Agregando Tesseract al PATH ===
+    set PATH=%PATH%;C:\Program Files\Tesseract-OCR
+    setx PATH "%PATH%;C:\Program Files\Tesseract-OCR" /M
+    
+    echo === Tesseract OCR ha sido instalado ===
+) else (
+    echo Tesseract OCR ya está instalado.
+)
+
 echo === Cerrando procesos en el puerto %PORT% ===
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%"') do (
     echo Terminando proceso con PID: %%a
@@ -29,6 +54,8 @@ if exist requirements.txt (
     echo Archivo requirements.txt no encontrado.
     echo Instalando Flask...
     pip install flask
+    echo Instalando pytesseract...
+    pip install pytesseract Pillow
 )
 
 echo === Iniciando aplicación Flask ===
