@@ -203,24 +203,10 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    """Página principal que muestra todas las imágenes disponibles."""
-    latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
-    
-    # Preparar datos de imágenes
-    images_data = []
-    for img_path in latest_images:
-        images_data.append(get_image_data(img_path))
-    
-    # Si no hay imágenes, mostrar mensaje
-    if not images_data:
-        images_data.append({
-            'name': 'No hay imágenes disponibles',
-            'path': None,
-            'data': None,
-            'modified': 'N/A'
-        })
-    
-    return render_template('index.html', images=images_data, username=session.get('username', ''))
+    """Ruta principal que muestra las imágenes de la carpeta de entrada."""
+    images = get_images()
+    username = session.get('username', '')
+    return render_template('index.html', images=images, username=username)
 
 @app.route('/upload', methods=['POST'])
 @login_required
@@ -373,7 +359,7 @@ def scan_documents():
 @app.route('/ocr')
 @login_required
 def execute_ocr():
-    """Ejecuta el script de OCR para extraer texto de las imágenes."""
+    """Ejecuta el script de OCR para extraer texto de las imágenes y busca Proyectos."""
     try:
         # Verificar si se especificó un archivo específico
         filename = request.args.get('filename')
@@ -386,41 +372,68 @@ def execute_ocr():
                 return jsonify({'success': False, 'error': f'Archivo no encontrado: {filename}'}), 404
             image_files = [image_path]
         else:
-            # Si no se especificó, usar la imagen más reciente
-            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=1)
+            # Si no se especificó, usar todas las imágenes disponibles
+            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
         
         if not image_files:
             return jsonify({'success': False, 'error': 'No hay imágenes disponibles para OCR'}), 400
         
-        # Procesar la primera imagen
-        image_path = image_files[0]
-        logger.info(f"Ejecutando OCR en: {image_path}")
+        logger.info(f"Ejecutando OCR en {len(image_files)} imágenes")
         
         try:
-            # Procesamiento directo con pytesseract
+            # Importar pytesseract
             from PIL import Image as PILImage
             import pytesseract
-            img = PILImage.open(image_path)
-            ocr_text = pytesseract.image_to_string(img, lang='spa')
+            import re
             
-            # Importar la función para extraer datos del estudiante
+            # Procesar todas las imágenes y recopilar texto
+            all_ocr_text = ""
+            processed_files = []
+            
+            for image_path in image_files:
+                img = PILImage.open(image_path)
+                current_text = pytesseract.image_to_string(img, lang='spa')
+                all_ocr_text += current_text + "\n"
+                processed_files.append(os.path.basename(image_path))
+                logger.info(f"OCR completado para: {os.path.basename(image_path)}")
+            
+            # Buscar el patrón de Proyecto: 2301 seguido de 1-2 letras mayúsculas y 4 dígitos
+            matricula_pattern = r'2301[A-Z]{1,2}\d{4}'
+            matriculas_encontradas = re.findall(matricula_pattern, all_ocr_text)
+            
+            # Importar la función para extraer datos del estudiante si es necesario
             from functions.test_ocr import extract_student_data
-            student_data = extract_student_data(ocr_text)
+            student_data = extract_student_data(all_ocr_text)
+            
+            # Añadir proyecto encontrada a los datos del estudiante
+            if matriculas_encontradas and len(matriculas_encontradas) > 0:
+                student_data['matricula'] = matriculas_encontradas[0]
+                logger.info(f"Proyecto encontrada: {matriculas_encontradas[0]}")
+            else:
+                student_data['matricula'] = None
+                logger.info("No se encontró ningun proyecto con el formato 2301[A-Z]{1,2}\\d{4}")
+            
+            # Si se encontraron múltiples coincidencias, guardarlas todas
+            if len(matriculas_encontradas) > 1:
+                student_data['todas_matriculas'] = matriculas_encontradas
             
             # Verificar y mostrar la respuesta antes de enviarla
             logger.info(f"Respuesta final OCR - Datos extraídos: {student_data}")
             
             return jsonify({
                 'success': True, 
-                'output': 'OCR ejecutado directamente',
-                'ocr_text': ocr_text,
+                'output': 'OCR ejecutado en todas las imágenes',
+                'ocr_text': all_ocr_text,
                 'student_data': student_data,
-                'processed_file': os.path.basename(image_path)
+                'processed_files': processed_files,
+                'matriculas_encontradas': matriculas_encontradas
             }), 200
             
         except Exception as inner_e:
             logger.error(f"Error en procesamiento directo: {str(inner_e)}")
-            # Continuar con el método alternativo...
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'success': False, 'error': f"Error en procesamiento OCR: {str(inner_e)}"}), 500
         
     except Exception as e:
         error_msg = f"Error al ejecutar OCR: {str(e)}"
@@ -514,6 +527,10 @@ def generar_pdf():
         folio = data.get('folio', '')
         selected_images = data.get('selectedImages', [])
         
+        # Nuevos campos
+        documento_presente = data.get('documentoPresente', 'SI')
+        observacion = data.get('observacion', '')
+        
         if not rut_number or not rut_dv or not folio:
             return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
         
@@ -532,39 +549,57 @@ def generar_pdf():
             # Usar las imágenes seleccionadas
             image_files = [os.path.join(app.config['UPLOAD_FOLDER'], img) for img in selected_images]
         
-        if not image_files:
+        if not image_files and documento_presente == 'SI':
             return jsonify({'success': False, 'error': 'No hay imágenes para generar el PDF'}), 400
         
-        # Crear el PDF con las imágenes
-        from PIL import Image
-        from reportlab.lib.utils import ImageReader
-        
-        # Crear un PDF con las imágenes
-        c = canvas.Canvas(pdf_path, pagesize=letter)
-        
-        # Añadir cada imagen como una página del PDF
-        for img_path in image_files:
-            img = Image.open(img_path)
-            img_width, img_height = img.size
+        # Crear el PDF con las imágenes si el documento está presente
+        if documento_presente == 'SI' and image_files:
+            from PIL import Image
+            from reportlab.lib.utils import ImageReader
             
-            # Ajustar tamaño para que quepa en la página
-            page_width, page_height = letter
-            ratio = min(page_width / img_width, page_height / img_height) * 0.9
-            new_width = img_width * ratio
-            new_height = img_height * ratio
+            # Crear un PDF con las imágenes
+            c = canvas.Canvas(pdf_path, pagesize=letter)
             
-            # Posicionar en el centro de la página
-            x = (page_width - new_width) / 2
-            y = (page_height - new_height) / 2
+            # Añadir cada imagen como una página del PDF
+            for img_path in image_files:
+                img = Image.open(img_path)
+                img_width, img_height = img.size
+                
+                # Ajustar tamaño para que quepa en la página
+                page_width, page_height = letter
+                ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                new_width = img_width * ratio
+                new_height = img_height * ratio
+                
+                # Posicionar en el centro de la página
+                x = (page_width - new_width) / 2
+                y = (page_height - new_height) / 2
+                
+                c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                c.showPage()
             
-            c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-            c.showPage()
+            # Guardar el PDF
+            c.save()
+        elif documento_presente == 'NO':
+            # Si el documento no está presente, crear un PDF simple con la observación
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
+            
+            if observacion:
+                c.setFont("Helvetica", 12)
+                c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
+                # Dividir la observación en líneas si es muy larga
+                c.setFont("Helvetica", 10)
+                text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
+                for line in observacion.split('\n'):
+                    text_object.textLine(line)
+                c.drawText(text_object)
+            
+            c.save()
         
-        # Guardar el PDF
-        c.save()
-        
-        # Actualizar el CSV con el nombre del documento
-        actualizar_csv(folio, filename)
+        # Actualizar el CSV con el nombre del documento, estado y observación
+        actualizar_csv(folio, filename, documento_presente, observacion)
         
         logger.info(f"PDF generado correctamente: {pdf_path}")
         return jsonify({'success': True, 'filename': filename}), 200
@@ -576,8 +611,8 @@ def generar_pdf():
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
 
-def actualizar_csv(folio, nombre_documento):
-    """Actualiza el CSV con el nombre del documento."""
+def actualizar_csv(folio, nombre_documento, documento_presente='SI', observacion=''):
+    """Actualiza el CSV con el nombre del documento, estado y observación."""
     try:
         csv_path = 'db_input.csv'
         temp_file = 'db_input_temp.csv'
@@ -593,12 +628,20 @@ def actualizar_csv(folio, nombre_documento):
             csv_reader = csv.DictReader(file_in)
             fieldnames = csv_reader.fieldnames
             
+            # Añadir nuevos campos si no existen
+            if 'documento_presente' not in fieldnames:
+                fieldnames.append('documento_presente')
+            if 'observacion' not in fieldnames:
+                fieldnames.append('observacion')
+            
             csv_writer = csv.DictWriter(file_out, fieldnames=fieldnames)
             csv_writer.writeheader()
             
             for row in csv_reader:
                 if row.get('folio') == folio:
                     row['nombre_documento'] = nombre_documento
+                    row['documento_presente'] = documento_presente
+                    row['observacion'] = observacion
                     actualizado = True
                 csv_writer.writerow(row)
         
@@ -617,6 +660,217 @@ def actualizar_csv(folio, nombre_documento):
         import traceback
         logger.error(traceback.format_exc())
         return False
+
+@app.route('/buscar_codigo/<codigo>')
+@login_required
+def buscar_codigo(codigo):
+    """Busca un código en el CSV y devuelve los datos asociados."""
+    try:
+        csv_path = 'db_input.csv'
+        if not os.path.exists(csv_path):
+            return jsonify({'success': False, 'error': 'Archivo CSV no encontrado'}), 404
+        
+        with open(csv_path, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            for row in csv_reader:
+                if row.get('CODIGO') == codigo:
+                    return jsonify({'success': True, 'proyecto': row}), 200
+        
+        # Si llegamos aquí, el código no se encontró
+        return jsonify({'success': False, 'error': 'Código no encontrado'}), 404
+    
+    except Exception as e:
+        error_msg = f"Error al buscar código: {str(e)}"
+        logger.error(error_msg)
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/procesar_documento', methods=['POST'])
+@login_required
+def procesar_documento():
+    """Procesa el documento y actualiza el CSV."""
+    try:
+        data = request.json
+        codigo = data.get('codigo', '')
+        nombre_proyecto = data.get('nombreProyecto', '')
+        documento_presente = data.get('documentoPresente', 'SI')
+        observacion = data.get('observacion', '')
+        selected_images = data.get('selectedImages', [])
+        
+        if not codigo:
+            return jsonify({'success': False, 'error': 'Falta el código del proyecto'}), 400
+        
+        # Crear carpeta para PDFs si no existe
+        pdf_folder = 'pdf_procesado'
+        os.makedirs(pdf_folder, exist_ok=True)
+        
+        # Nombre del archivo PDF
+        filename = f"{codigo}.pdf"
+        pdf_path = os.path.join(pdf_folder, filename)
+        
+        # Si no se especificaron imágenes, usar todas las disponibles
+        if not selected_images:
+            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
+        else:
+            # Usar las imágenes seleccionadas
+            image_files = [os.path.join(app.config['UPLOAD_FOLDER'], img) for img in selected_images]
+        
+        # Crear el PDF con las imágenes si el documento está presente
+        if documento_presente == 'SI' and image_files:
+            from PIL import Image
+            from reportlab.lib.utils import ImageReader
+            
+            # Crear un PDF con las imágenes
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            
+            # Añadir cada imagen como una página del PDF
+            for img_path in image_files:
+                img = Image.open(img_path)
+                img_width, img_height = img.size
+                
+                # Ajustar tamaño para que quepa en la página
+                page_width, page_height = letter
+                ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                new_width = img_width * ratio
+                new_height = img_height * ratio
+                
+                # Posicionar en el centro de la página
+                x = (page_width - new_width) / 2
+                y = (page_height - new_height) / 2
+                
+                c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                c.showPage()
+            
+            # Guardar el PDF
+            c.save()
+        elif documento_presente == 'NO':
+            # Si el documento no está presente, crear un PDF simple con la observación
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
+            
+            if observacion:
+                c.setFont("Helvetica", 12)
+                c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
+                # Dividir la observación en líneas si es muy larga
+                c.setFont("Helvetica", 10)
+                text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
+                for line in observacion.split('\n'):
+                    text_object.textLine(line)
+                c.drawText(text_object)
+            
+            c.save()
+        
+        # Actualizar el CSV con los nuevos datos
+        actualizar_csv_proyecto(codigo, filename, documento_presente, observacion)
+        
+        # Limpiar la carpeta input
+        limpiar_input_folder()
+        
+        logger.info(f"Documento procesado correctamente: {pdf_path}")
+        return jsonify({'success': True, 'filename': filename}), 200
+    
+    except Exception as e:
+        error_msg = f"Error al procesar documento: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion=''):
+    """Actualiza o añade una entrada en el CSV para el proyecto."""
+    try:
+        csv_path = 'db_input.csv'
+        temp_file = 'db_input_temp.csv'
+        
+        # Verificar si el archivo existe
+        if not os.path.exists(csv_path):
+            logger.error(f"Archivo CSV no encontrado: {csv_path}")
+            return False
+        
+        # Leer el CSV y buscar si existe el código
+        codigo_encontrado = False
+        rows = []
+        
+        with open(csv_path, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            fieldnames = csv_reader.fieldnames
+            
+            # Asegurarse de que los campos necesarios existan
+            if 'DOC_PRESENTE' not in fieldnames:
+                fieldnames.append('DOC_PRESENTE')
+            if 'OBSERVACION' not in fieldnames:
+                fieldnames.append('OBSERVACION')
+            if 'PDF_PATH' not in fieldnames:
+                fieldnames.append('PDF_PATH')
+            
+            # Guardar todas las filas
+            for row in csv_reader:
+                if row.get('CODIGO') == codigo:
+                    row['DOC_PRESENTE'] = doc_presente
+                    row['OBSERVACION'] = observacion
+                    row['PDF_PATH'] = pdf_path
+                    codigo_encontrado = True
+                rows.append(row)
+        
+        # Si el código no existe, añadir una nueva fila
+        if not codigo_encontrado:
+            new_row = {field: '' for field in fieldnames}
+            new_row['CODIGO'] = codigo
+            new_row['DOC_PRESENTE'] = doc_presente
+            new_row['OBSERVACION'] = observacion
+            new_row['PDF_PATH'] = pdf_path
+            rows.append(new_row)
+        
+        # Escribir todas las filas de vuelta al CSV
+        with open(temp_file, 'w', newline='', encoding='utf-8') as file:
+            csv_writer = csv.DictWriter(file, fieldnames=fieldnames)
+            csv_writer.writeheader()
+            csv_writer.writerows(rows)
+        
+        # Reemplazar el archivo original con el temporal
+        os.replace(temp_file, csv_path)
+        logger.info(f"CSV actualizado correctamente para el código {codigo}")
+        return True
+    
+    except Exception as e:
+        logger.error(f"Error al actualizar CSV: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
+
+def limpiar_input_folder():
+    """Elimina todos los archivos de la carpeta input."""
+    try:
+        input_folder = app.config['UPLOAD_FOLDER']
+        for file in os.listdir(input_folder):
+            file_path = os.path.join(input_folder, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        logger.info("Carpeta input limpiada correctamente")
+        return True
+    except Exception as e:
+        logger.error(f"Error al limpiar carpeta input: {str(e)}")
+        return False
+
+def get_images():
+    """Obtiene las imágenes de la carpeta de entrada y las prepara para mostrar."""
+    latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
+    
+    # Preparar datos de imágenes
+    images_data = []
+    for img_path in latest_images:
+        images_data.append(get_image_data(img_path))
+    
+    # Si no hay imágenes, mostrar mensaje
+    if not images_data:
+        images_data.append({
+            'name': 'No hay imágenes disponibles',
+            'path': None,
+            'data': None,
+            'modified': 'N/A'
+        })
+    
+    return images_data
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

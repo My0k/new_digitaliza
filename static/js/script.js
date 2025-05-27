@@ -35,12 +35,36 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Botón de procesar documento
     document.getElementById('processBtn').addEventListener('click', function() {
-        processDocument();
+        const codigo = document.getElementById('projectCode').value.trim();
+        
+        if (!codigo) {
+            alert('Por favor ingrese un código de proyecto');
+            return;
+        }
+        
+        // Buscar el código en el CSV
+        buscarCodigo(codigo).then(data => {
+            let nombreProyecto = 'No encontrado';
+            
+            if (data.success && data.proyecto) {
+                nombreProyecto = data.proyecto.NOMBRE_INICIATIVA;
+            }
+            
+            // Obtener los valores de documento presente y observación
+            const documentoPresente = document.getElementById('documentPresent').value;
+            const observacion = document.getElementById('observation').value;
+            
+            // Preguntar al usuario si desea continuar
+            if (confirm(`Estás añadiendo ${codigo}.pdf para el proyecto: ${nombreProyecto}\n\n¿Continuar?`)) {
+                // Procesar el documento
+                procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion);
+            }
+        });
     });
     
     // Botón de OCR
     document.getElementById('ocrBtn').addEventListener('click', function() {
-        runOCR();
+        executeOCR();
     });
     
     // Iniciar monitoreo de cambios en la carpeta
@@ -56,6 +80,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Inicializar imágenes y cargar eventos iniciales
     refreshImages();
+
+    // Actualizar la interfaz para mostrar solo lo necesario
+    updateInterface();
 });
 
 // Variable para almacenar la última modificación conocida
@@ -459,49 +486,45 @@ function scanDocuments() {
         });
 }
 
-// Función para procesar el documento con los datos ingresados
-function processDocument() {
-    // Obtener el folio ingresado
-    const folio = document.getElementById('studentFolio').value.trim();
+// Función para procesar el documento con el código de proyecto
+function processDocument(codigo, nombreProyecto, documentoPresente, observacion) {
+    // Obtener todas las imágenes disponibles
+    let selectedImages = [];
+    document.querySelectorAll('.document-image').forEach(img => {
+        const filename = img.alt;
+        if (filename) {
+            selectedImages.push(filename);
+        }
+    });
     
-    if (!folio) {
-        alert('Por favor, ingrese un número de folio');
-        return;
-    }
-    
-    // Mostrar indicador de carga
-    const processBtn = document.getElementById('processBtn');
-    const originalText = processBtn.innerHTML;
-    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
-    processBtn.disabled = true;
-    
-    // Llamar al endpoint para buscar el folio
-    fetch(`/buscar_folio/${folio}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Llenar los campos con los datos obtenidos
-                document.getElementById('studentName').value = data.datos.nombre_estudiante;
-                document.getElementById('avalName').value = data.datos.nombre_aval;
-                document.getElementById('avalRut').value = data.datos.rut_aval;
-                document.getElementById('amount').value = data.datos.monto;
-                document.getElementById('avalEmail').value = data.datos.email_aval;
-                
-                // Mostrar botón de finalizar procesado
-                mostrarBotonFinalizar();
-            } else {
-                alert('Error: ' + (data.error || 'No se encontró el folio especificado'));
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error al procesar el documento');
-        })
-        .finally(() => {
-            // Restaurar el botón
-            processBtn.innerHTML = originalText;
-            processBtn.disabled = false;
-        });
+    // Enviar datos al servidor para procesar
+    fetch('/procesar_documento', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            codigo: codigo,
+            nombreProyecto: nombreProyecto,
+            documentoPresente: documentoPresente,
+            observacion: observacion,
+            selectedImages: selectedImages
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Documento procesado correctamente');
+            // Recargar la página para actualizar la vista
+            window.location.reload();
+        } else {
+            alert('Error al procesar documento: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error al procesar el documento');
+    });
 }
 
 // Función para mostrar el botón de finalizar procesado
@@ -620,160 +643,108 @@ function splitRut(rutCompleto) {
     return { numero, dv };
 }
 
-// Mejorar el manejo del texto OCR en el modal
-function runOCR() {
-    // Mostrar indicador de carga
+// Función para OCR enfocada solo en encontrar el código de proyecto
+function executeOCR() {
     const ocrBtn = document.getElementById('ocrBtn');
     const originalText = ocrBtn.innerHTML;
-    ocrBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> OCR...';
+    ocrBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
     ocrBtn.disabled = true;
     
-    // Verificar si hay imágenes
-    if (imageOrder.length === 0) {
-        alert('No hay imágenes para procesar');
-        ocrBtn.innerHTML = originalText;
-        ocrBtn.disabled = false;
-        return;
-    }
-    
-    // Obtener el nombre de la primera imagen según el orden actual
-    const firstImageName = imageOrder[0];
-    console.log("Procesando OCR en la primera imagen:", firstImageName);
-    
-    // Añadir un indicador visual temporal
-    const firstImageCard = document.querySelector('.col-md-6:first-child .card');
-    if (firstImageCard) {
-        firstImageCard.classList.add('border-danger', 'border-5');
-        setTimeout(() => {
-            firstImageCard.classList.remove('border-danger', 'border-5');
-        }, 2000);
-    }
-    
-    // Llamar al endpoint que ejecutará el script con la imagen específica
-    fetch(`/ocr?filename=${firstImageName}`)
+    fetch('/ocr')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                console.log('Datos OCR completos:', data);
+                let matriculaMessage = '';
                 
-                // Mensaje para mostrar si no se encontraron datos
-                let ocrMessage = '';
-                let dataFound = false;
-                
-                // Rellenar SOLO los campos RUT y Folio con los datos extraídos
-                if (data.student_data) {
-                    // Separar y rellenar RUT del estudiante
-                    if (data.student_data.rut) {
-                        dataFound = true;
-                        const rutParts = splitRut(data.student_data.rut);
-                        document.getElementById('studentRutNumber').value = rutParts.numero;
-                        document.getElementById('studentRutDV').value = rutParts.dv;
-                    }
+                // Prellenar el campo de código de proyecto si se encontró uno
+                if (data.matriculas_encontradas && data.matriculas_encontradas.length > 0) {
+                    const projectCodeField = document.getElementById('projectCode');
+                    projectCodeField.value = data.matriculas_encontradas[0];
                     
-                    // Rellenar folio del estudiante
-                    if (data.student_data.folio) {
-                        dataFound = true;
-                        document.getElementById('studentFolio').value = data.student_data.folio;
+                    // Efecto visual para mostrar que se ha rellenado
+                    projectCodeField.classList.add('bg-success', 'text-white');
+                    setTimeout(() => {
+                        projectCodeField.classList.remove('bg-success', 'text-white');
+                    }, 1500);
+                    
+                    // Mensaje de éxito
+                    matriculaMessage = `<div class="alert alert-success">
+                        <strong>Código encontrado:</strong> ${data.matriculas_encontradas[0]}
+                    </div>`;
+                    
+                    // Si hay más de un código, mostrarlos todos y permitir seleccionar
+                    if (data.matriculas_encontradas.length > 1) {
+                        matriculaMessage += `<div class="alert alert-info">
+                            <strong>Múltiples códigos encontrados:</strong>
+                            <ul class="mb-0 mt-2 codigo-list">
+                                ${data.matriculas_encontradas.map(m => 
+                                    `<li><a href="#" class="codigo-link" data-codigo="${m}">${m}</a></li>`
+                                ).join('')}
+                            </ul>
+                        </div>`;
                     }
+                } else {
+                    matriculaMessage = `<div class="alert alert-warning">
+                        <strong>Código no encontrado.</strong> No se pudo detectar ningún código con formato 2301[A-Z]{1,2}\\d{4}
+                    </div>`;
                 }
-                
-                if (!dataFound) {
-                    ocrMessage = '<div class="alert alert-warning">No se detectaron datos automáticamente. Por favor, ingrese manualmente el RUT y Folio.</div>';
-                }
-                
-                // Asegurarse de que el texto OCR esté disponible y formateado correctamente
-                const ocrText = data.ocr_text || "No se pudo extraer texto de la imagen";
                 
                 // Crear modal para mostrar el resultado del OCR
                 const modalHtml = `
                 <div class="modal fade" id="ocrResultModal" tabindex="-1" aria-labelledby="ocrResultModalLabel" aria-hidden="true">
-                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                    <div class="modal-dialog modal-lg">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR (Página 1: ${firstImageName})</h5>
+                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
-                                ${ocrMessage}
-                                <div class="alert alert-info mb-3">
-                                    <strong>Datos extraídos:</strong>
-                                    <ul class="mb-0 mt-2">
-                                        <li><strong>RUT:</strong> ${data.student_data?.rut || 'No encontrado'}</li>
-                                        <li><strong>Folio:</strong> ${data.student_data?.folio || 'No encontrado'}</li>
-                                    </ul>
-                                    <div class="mt-3 text-dark fw-bold">
-                                        Revisa los datos en la pantalla principal antes de procesar el documento
-                                    </div>
-                                </div>
-                                
-                                <div class="mb-3">
-                                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOcrText" aria-expanded="false" aria-controls="collapseOcrText">
-                                        <i class="fas fa-plus-circle me-1"></i> Mostrar texto completo extraído
-                                    </button>
-                                </div>
-                                
-                                <div class="collapse show" id="collapseOcrText">
-                                    <div class="card card-body">
-                                        <h6>Texto completo extraído:</h6>
-                                        <pre class="ocr-result" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${ocrText}</pre>
-                                    </div>
-                                </div>
+                                ${matriculaMessage}
+                                <h6>Texto extraído:</h6>
+                                <pre class="bg-light p-3 border rounded" style="max-height:300px;overflow:auto;white-space:pre-wrap;">${data.ocr_text}</pre>
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                                <button type="button" class="btn btn-primary" id="copyOcrBtn">
-                                    <i class="fas fa-copy me-1"></i> Copiar al portapapeles
-                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
                 `;
                 
-                // Añadir el modal al DOM
-                const modalContainer = document.createElement('div');
-                modalContainer.innerHTML = modalHtml;
-                document.body.appendChild(modalContainer);
+                // Eliminar modal anterior si existe
+                const oldModal = document.getElementById('ocrResultModal');
+                if (oldModal) {
+                    oldModal.remove();
+                }
+                
+                // Añadir el nuevo modal al body
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
                 
                 // Mostrar el modal
-                const ocrModal = new bootstrap.Modal(document.getElementById('ocrResultModal'));
-                ocrModal.show();
+                const ocrResultModal = new bootstrap.Modal(document.getElementById('ocrResultModal'));
+                ocrResultModal.show();
                 
-                // Manejar el botón de copiar
-                document.getElementById('copyOcrBtn').addEventListener('click', function() {
-                    const ocrText = data.ocr_text;
-                    navigator.clipboard.writeText(ocrText).then(() => {
-                        this.innerHTML = '<i class="fas fa-check me-1"></i> Copiado';
-                        setTimeout(() => {
-                            this.innerHTML = '<i class="fas fa-copy me-1"></i> Copiar al portapapeles';
-                        }, 2000);
+                // Añadir event listeners para los enlaces de códigos alternativos
+                document.querySelectorAll('.codigo-link').forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const codigo = this.getAttribute('data-codigo');
+                        document.getElementById('projectCode').value = codigo;
+                        ocrResultModal.hide();
                     });
                 });
-                
-                // Cambiar el texto del botón cuando se expande/contrae
-                document.querySelector('[data-bs-toggle="collapse"]').addEventListener('click', function() {
-                    const expanded = this.getAttribute('aria-expanded') === 'true';
-                    if (expanded) {
-                        this.innerHTML = '<i class="fas fa-minus-circle me-1"></i> Ocultar texto completo extraído';
-                    } else {
-                        this.innerHTML = '<i class="fas fa-plus-circle me-1"></i> Mostrar texto completo extraído';
-                    }
-                });
-                
-                // Eliminar el modal del DOM cuando se cierre
-                document.getElementById('ocrResultModal').addEventListener('hidden.bs.modal', function() {
-                    this.remove();
-                });
             } else {
-                alert('Error al ejecutar OCR: ' + data.error);
+                console.error('Error en OCR:', data.error);
+                alert(`Error al procesar OCR: ${data.error}`);
             }
+            
+            // Restaurar botón
+            ocrBtn.innerHTML = originalText;
+            ocrBtn.disabled = false;
         })
         .catch(error => {
             console.error('Error al ejecutar OCR:', error);
-            alert('Error al ejecutar OCR');
-        })
-        .finally(() => {
-            // Restaurar el botón
+            alert('Error al ejecutar OCR. Por favor, inténtelo de nuevo.');
             ocrBtn.innerHTML = originalText;
             ocrBtn.disabled = false;
         });
@@ -792,11 +763,14 @@ function newDigitalization() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Limpiar todos los campos del formulario
+                // Limpiar solo el campo de proyecto
                 document.getElementById('documentDataForm').reset();
-                document.getElementById('studentRutNumber').value = '';
-                document.getElementById('studentRutDV').value = '';
-                document.getElementById('studentFolio').value = '';
+                
+                // Limpiar específicamente el campo de proyecto
+                const matriculaField = document.getElementById('studentMatricula');
+                if (matriculaField) {
+                    matriculaField.value = '';
+                }
                 
                 // Actualizar las imágenes (ahora deberían estar vacías)
                 refreshImages();
@@ -818,4 +792,25 @@ function newDigitalization() {
 function initializeZoom() {
     // Implementar funcionalidad de zoom si es necesario
     // O dejar vacía si no se necesita esta funcionalidad
+}
+
+// Función para modificar la interfaz al cargar la página
+function updateInterface() {
+    // No hacer nada, ya que el HTML tiene lo que necesitamos
+    console.log("Interfaz ya configurada en HTML");
+    
+    // O simplemente eliminar esta función si no se usa para nada más
+}
+
+// Añadir función para buscar código en el CSV
+function buscarCodigo(codigo) {
+    return fetch(`/buscar_codigo/${codigo}`)
+        .then(response => response.json())
+        .then(data => {
+            return data;
+        })
+        .catch(error => {
+            console.error('Error al buscar código:', error);
+            return { success: false, error: 'Error al buscar el código' };
+        });
 }

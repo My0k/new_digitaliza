@@ -84,49 +84,33 @@
             <div class="col-md-3">
                 <div class="card">
                     <div class="card-header bg-dark text-white">
-                        <h5 class="card-title mb-0">Datos del Documento</h5>
+                        <h5 class="card-title mb-0">Verificador de Código de Proyecto</h5>
                     </div>
                     <div class="card-body">
                         <form id="documentDataForm">
-                            <!-- Campos de entrada principales -->
-                            <div class="mb-3">
-                                <label class="form-label">RUT</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" id="studentRutNumber" placeholder="Ej: 20500542">
-                                    <span class="input-group-text">-</span>
-                                    <input type="text" class="form-control" id="studentRutDV" placeholder="0" style="max-width: 60px;">
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label for="studentFolio" class="form-label">Folio</label>
-                                <input type="text" class="form-control" id="studentFolio" placeholder="Número de folio">
+                            <!-- Campo único de Código de Proyecto -->
+                            <div class="mb-3" id="projectCodeContainer">
+                                <label for="projectCode" class="form-label">Código de proyecto</label>
+                                <input type="text" class="form-control" id="projectCode" name="projectCode" placeholder="2301XX0000">
+                                <div class="form-text">El sistema busca códigos con formato 2301 seguido de 1-2 letras y 4 dígitos.</div>
                             </div>
                             
-                            <!-- Campos de solo lectura -->
-                            <h6 class="mt-4 mb-3 text-muted">Información adicional</h6>
-                            <div class="mb-2 readonly-section">
-                                <label for="studentName" class="form-label text-muted">Nombre Estudiante</label>
-                                <input type="text" class="form-control readonly-field" id="studentName" readonly>
-                            </div>
-                            <div class="mb-2 readonly-section">
-                                <label for="avalName" class="form-label text-muted">Nombre Aval</label>
-                                <input type="text" class="form-control readonly-field" id="avalName" readonly>
-                            </div>
-                            <div class="mb-2 readonly-section">
-                                <label for="avalRut" class="form-label text-muted">RUT Aval</label>
-                                <input type="text" class="form-control readonly-field" id="avalRut" readonly>
-                            </div>
-                            <div class="mb-2 readonly-section">
-                                <label for="amount" class="form-label text-muted">Monto</label>
-                                <input type="text" class="form-control readonly-field" id="amount" readonly>
-                            </div>
-                            <div class="mb-3 readonly-section">
-                                <label for="avalEmail" class="form-label text-muted">Email Aval</label>
-                                <input type="email" class="form-control readonly-field" id="avalEmail" readonly>
+                            <!-- Campos para documento presente y observaciones -->
+                            <div class="mb-3">
+                                <label for="documentPresent" class="form-label">¿Documento Presente?</label>
+                                <select class="form-select" id="documentPresent" name="documentPresent">
+                                    <option value="SI" selected>SI</option>
+                                    <option value="NO">NO</option>
+                                </select>
                             </div>
                             
-                            <!-- Botones de procesar y OCR -->
-                            <div class="d-flex gap-2">
+                            <div class="mb-3">
+                                <label for="observation" class="form-label">Observación (Opcional)</label>
+                                <textarea class="form-control" id="observation" name="observation" rows="3"></textarea>
+                            </div>
+                            
+                            <!-- Botones -->
+                            <div class="mt-4 d-flex gap-2">
                                 <button type="button" id="processBtn" class="btn btn-primary btn-lg flex-grow-1">
                                     <i class="fas fa-cogs me-2"></i> Procesar Documento
                                 </button>
