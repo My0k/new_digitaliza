@@ -9,43 +9,61 @@ echo ===============================================
 set PYTHON_FOUND=0
 set PYTHON_PATH=
 
-:: Intentar encontrar Python en ubicaciones comunes
-if exist "C:\Program Files\Python39\python.exe" (
-    set PYTHON_PATH=C:\Program Files\Python39\python.exe
+:: Intentar encontrar Python en ubicaciones comunes (incluyendo Python 3.12)
+if exist "C:\Program Files\Python312\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python312\python.exe
     set PYTHON_FOUND=1
-) else if exist "C:\Program Files\Python310\python.exe" (
-    set PYTHON_PATH=C:\Program Files\Python310\python.exe
+) else if exist "C:\Python312\python.exe" (
+    set PYTHON_PATH=C:\Python312\python.exe
     set PYTHON_FOUND=1
 ) else if exist "C:\Program Files\Python311\python.exe" (
     set PYTHON_PATH=C:\Program Files\Python311\python.exe
     set PYTHON_FOUND=1
-) else if exist "C:\Python39\python.exe" (
-    set PYTHON_PATH=C:\Python39\python.exe
+) else if exist "C:\Program Files\Python310\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python310\python.exe
     set PYTHON_FOUND=1
-) else if exist "C:\Python310\python.exe" (
-    set PYTHON_PATH=C:\Python310\python.exe
+) else if exist "C:\Program Files\Python39\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python39\python.exe
     set PYTHON_FOUND=1
 ) else if exist "C:\Python311\python.exe" (
     set PYTHON_PATH=C:\Python311\python.exe
     set PYTHON_FOUND=1
+) else if exist "C:\Python310\python.exe" (
+    set PYTHON_PATH=C:\Python310\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Python39\python.exe" (
+    set PYTHON_PATH=C:\Python39\python.exe
+    set PYTHON_FOUND=1
 )
 
-:: Si no encontramos en rutas comunes, intentar buscar en PATH
+:: Si no encontramos Python, intentar instalarlo con winget
 if %PYTHON_FOUND% equ 0 (
-    where python >nul 2>&1
+    echo No se encontró una instalación válida de Python.
+    echo.
+    echo Intentando instalar Python automáticamente con winget...
+    
+    :: Verificar si winget está disponible
+    winget --version >nul 2>&1
     if %errorlevel% equ 0 (
-        for /f "tokens=*" %%i in ('where python') do (
-            set PYTHON_PATH=%%i
+        echo Instalando Python 3.12 con winget (esto puede tomar varios minutos)...
+        winget install Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+        
+        :: Verificar si la instalación fue exitosa
+        if exist "C:\Program Files\Python312\python.exe" (
+            set PYTHON_PATH=C:\Program Files\Python312\python.exe
             set PYTHON_FOUND=1
-            goto :python_found
+            echo Python instalado correctamente.
+        ) else (
+            echo La instalación automática no pudo completarse.
         )
+    ) else (
+        echo Winget no está disponible en este sistema. No se puede instalar Python automáticamente.
     )
 )
 
-:python_found
 :: Si aún no encontramos Python, mostrar mensaje y salir
 if %PYTHON_FOUND% equ 0 (
-    echo ERROR: No se pudo encontrar una instalación de Python en el sistema.
+    echo ERROR: No se pudo encontrar o instalar Python en el sistema.
     echo.
     echo Es necesario instalar Python 3.8 o superior para ejecutar esta aplicación.
     echo Por favor, descargue e instale Python desde: https://www.python.org/downloads/
