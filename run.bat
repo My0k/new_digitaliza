@@ -5,18 +5,64 @@ echo ===============================================
 echo Iniciando setup para la aplicación Digitaliza
 echo ===============================================
 
-:: Definir la ruta específica a Python
-set PYTHON_PATH=C:\Users\UCT\AppData\Local\Microsoft\WindowsApps\python.exe
+:: Buscar Python en diferentes ubicaciones
+set PYTHON_FOUND=0
+set PYTHON_PATH=
 
-:: Verificar si Python existe en la ruta especificada
-if not exist "%PYTHON_PATH%" (
-    echo ERROR: Python no se encuentra en la ruta especificada:
-    echo %PYTHON_PATH%
-    echo.
-    echo Por favor, verifica la instalación de Python o modifica este script con la ruta correcta.
-    pause
-    exit /b 1
+:: Intentar encontrar Python en ubicaciones comunes
+if exist "C:\Program Files\Python39\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python39\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Program Files\Python310\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python310\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Program Files\Python311\python.exe" (
+    set PYTHON_PATH=C:\Program Files\Python311\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Python39\python.exe" (
+    set PYTHON_PATH=C:\Python39\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Python310\python.exe" (
+    set PYTHON_PATH=C:\Python310\python.exe
+    set PYTHON_FOUND=1
+) else if exist "C:\Python311\python.exe" (
+    set PYTHON_PATH=C:\Python311\python.exe
+    set PYTHON_FOUND=1
 )
+
+:: Si no encontramos en rutas comunes, intentar buscar en PATH
+if %PYTHON_FOUND% equ 0 (
+    where python >nul 2>&1
+    if %errorlevel% equ 0 (
+        for /f "tokens=*" %%i in ('where python') do (
+            set PYTHON_PATH=%%i
+            set PYTHON_FOUND=1
+            goto :python_found
+        )
+    )
+)
+
+:python_found
+:: Si aún no encontramos Python, mostrar mensaje y salir
+if %PYTHON_FOUND% equ 0 (
+    echo ERROR: No se pudo encontrar una instalación de Python en el sistema.
+    echo.
+    echo Es necesario instalar Python 3.8 o superior para ejecutar esta aplicación.
+    echo Por favor, descargue e instale Python desde: https://www.python.org/downloads/
+    echo.
+    echo Asegúrese de marcar la opción "Add Python to PATH" durante la instalación.
+    echo.
+    echo ¿Desea abrir la página de descarga de Python ahora? (S/N)
+    choice /c SN /m "Su elección:"
+    if errorlevel 2 goto :end
+    if errorlevel 1 start "" https://www.python.org/downloads/
+    echo.
+    echo Después de instalar Python, ejecute este script nuevamente.
+    goto :end
+)
+
+echo Python encontrado en: %PYTHON_PATH%
+echo.
 
 :: Mostrar la versión de Python instalada
 "%PYTHON_PATH%" --version
@@ -28,6 +74,8 @@ if not exist "venv\" (
     "%PYTHON_PATH%" -m venv venv
     if %errorlevel% neq 0 (
         echo ERROR: No se pudo crear el entorno virtual.
+        echo Intente instalando el módulo venv manualmente con:
+        echo "%PYTHON_PATH%" -m pip install virtualenv
         pause
         exit /b 1
     )
@@ -81,4 +129,5 @@ start "" http://localhost:5000
 :: Desactivar entorno virtual al finalizar
 call venv\Scripts\deactivate.bat
 
+:end
 endlocal
