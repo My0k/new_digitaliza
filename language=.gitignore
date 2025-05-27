@@ -1,0 +1,69 @@
+# Archivos y carpetas específicas del proyecto
+input/
+input/*
+pdf_procesado/
+pdf_procesado/*
+*.pdf
+
+# Entorno virtual
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Base de datos y archivos temporales
+*.db
+*.sqlite
+*_temp.csv
+*.temp
+
+# Archivos de imagen
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+
+# Archivos de log
+*.log
+logs/
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Archivos específicos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos específicos de IDEs/editores
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/ 
