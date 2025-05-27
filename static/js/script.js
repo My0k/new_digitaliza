@@ -204,13 +204,16 @@ function refreshImages() {
                                     <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo" ${index === orderedData.length - 1 ? 'disabled' : ''}>
                                         <i class="fas fa-arrow-down"></i>
                                     </button>
+                                    <button class="btn btn-sm btn-primary move-to-first-btn" data-filename="${image.name}" title="Mover a primera posición" ${index === 0 ? 'disabled' : ''}>
+                                        <i class="fas fa-angle-double-up"></i>
+                                    </button>
                                     <button class="btn btn-sm btn-danger delete-btn" data-filename="${image.name}" title="Eliminar">
                                         <i class="fas fa-trash"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-light rotate-left" data-filename="${image.name}" title="Rotar izquierda">
+                                    <button class="btn btn-sm btn-info rotate-left" data-filename="${image.name}" title="Rotar izquierda">
                                         <i class="fas fa-undo"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-light rotate-right" data-filename="${image.name}" title="Rotar derecha">
+                                    <button class="btn btn-sm btn-info rotate-right" data-filename="${image.name}" title="Rotar derecha">
                                         <i class="fas fa-redo"></i>
                                     </button>
                                 </div>
@@ -251,6 +254,15 @@ function addButtonEvents() {
             console.log('Click en mover abajo');
             const filename = this.getAttribute('data-filename');
             moveImage(filename, 'down');
+        });
+    });
+    
+    // Añadir eventos a los botones de mover a primera posición
+    document.querySelectorAll('.move-to-first-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            console.log('Click en mover a primera posición');
+            const filename = this.getAttribute('data-filename');
+            moveImageToFirst(filename);
         });
     });
     
@@ -320,6 +332,29 @@ function moveImage(filename, direction) {
         [imageOrder[index], imageOrder[index + 1]] = [imageOrder[index + 1], imageOrder[index]];
         refreshImages();
     }
+}
+
+// Función para mover una imagen a la primera posición
+function moveImageToFirst(filename) {
+    // Verificar que la imagen no es ya la primera
+    const currentIndex = imageOrder.indexOf(filename);
+    if (currentIndex <= 0) {
+        return; // Ya es la primera imagen o no se encuentra
+    }
+    
+    // Quitar la imagen de su posición actual
+    imageOrder.splice(currentIndex, 1);
+    // Añadirla al principio
+    imageOrder.unshift(filename);
+    
+    // Guardar el nuevo orden en localStorage
+    localStorage.setItem('imageOrder', JSON.stringify(imageOrder));
+    
+    // Actualizar la vista
+    refreshImages();
+    
+    // Mostrar notificación
+    showNotification('Imagen movida a la primera posición', 'success');
 }
 
 // Función para subir archivos
