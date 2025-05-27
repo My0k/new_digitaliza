@@ -26,6 +26,12 @@ if %errorlevel% neq 0 (
     setx PATH "%PATH%;C:\Program Files\Tesseract-OCR" /M
     
     echo === Tesseract OCR ha sido instalado ===
+    
+    echo === IMPORTANTE: Se requiere reiniciar este script ===
+    echo Tesseract ha sido instalado. Por favor, cierre esta ventana
+    echo y ejecute nuevamente el script para que los cambios surtan efecto.
+    pause
+    exit
 ) else (
     echo Tesseract OCR ya está instalado.
 )
@@ -58,11 +64,21 @@ if exist requirements.txt (
     pip install pytesseract Pillow
 )
 
+echo === Configurando variables de entorno para Tesseract ===
+set TESSDATA_PREFIX=C:\Program Files\Tesseract-OCR\tessdata
+set PATH=%PATH%;C:\Program Files\Tesseract-OCR
+
 echo === Iniciando aplicación Flask ===
-start "Flask App" cmd /c "%VENV_DIR%\Scripts\python.exe app.py"
+echo.
+echo Si la aplicación se cierra inmediatamente, puede ejecutarla manualmente con:
+echo cd %CD% ^& %VENV_DIR%\Scripts\python.exe app.py
+echo.
+
+rem Inicia Flask en una nueva ventana pero mantiene los mensajes de error visibles
+start "Flask App" cmd /k "cd %CD% && %VENV_DIR%\Scripts\python.exe app.py"
 
 echo === Esperando a que la aplicación inicie ===
-timeout /t 3 /nobreak > nul
+timeout /t 5 /nobreak > nul
 
 echo === Abriendo navegador ===
 start http://localhost:%PORT%
