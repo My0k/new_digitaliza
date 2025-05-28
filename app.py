@@ -322,9 +322,11 @@ def scan_documents():
         
         # Importar módulos necesarios
         import win32gui
+        import win32con
         import re
         import pyautogui
         import time
+        import ctypes
         
         # Función para encontrar ventana por título
         def find_window_with_title(title_pattern):
@@ -346,30 +348,93 @@ def scan_documents():
         if windows:
             hwnd, title = windows[0]  # Tomar la primera ventana encontrada
             
-            # Activar la ventana encontrada
-            win32gui.SetForegroundWindow(hwnd)
+            # Intentar activar la ventana usando múltiples métodos en secuencia
+            activation_success = False
+            error_messages = []
+            
+            # Método 1: Usar ShowWindow y SetForegroundWindow con manejo de errores
+            try:
+                # Primero asegurarnos que la ventana esté visible
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.5)  # Dar tiempo para que la ventana se restaure
+                win32gui.SetForegroundWindow(hwnd)
+                activation_success = True
+                logger.info(f"Método 1 exitoso para activar ventana '{title}'")
+            except Exception as e1:
+                error_messages.append(f"Método 1 fallido: {str(e1)}")
+                logger.warning(f"Método 1 fallido: {str(e1)}")
+                
+                # Método 2: Usar AttachThreadInput
+                try:
+                    foreground_hwnd = win32gui.GetForegroundWindow()
+                    foreground_thread = win32gui.GetWindowThreadProcessId(foreground_hwnd)[0]
+                    target_thread = win32gui.GetWindowThreadProcessId(hwnd)[0]
+                    
+                    if foreground_thread != target_thread:
+                        ctypes.windll.user32.AttachThreadInput(foreground_thread, target_thread, True)
+                        win32gui.SetForegroundWindow(hwnd)
+                        ctypes.windll.user32.AttachThreadInput(foreground_thread, target_thread, False)
+                    else:
+                        win32gui.SetForegroundWindow(hwnd)
+                    
+                    activation_success = True
+                    logger.info(f"Método 2 exitoso para activar ventana '{title}'")
+                except Exception as e2:
+                    error_messages.append(f"Método 2 fallido: {str(e2)}")
+                    logger.warning(f"Método 2 fallido: {str(e2)}")
+                    
+                    # Método 3: Simular Alt+Tab o usar BringWindowToTop
+                    try:
+                        # Obtener dimensiones de la pantalla para el método 3
+                        screen_width, screen_height = pyautogui.size()
+                        
+                        # Intento usando BringWindowToTop
+                        win32gui.BringWindowToTop(hwnd)
+                        pyautogui.press('alt')  # A veces ayuda a activar la ventana
+                        time.sleep(0.5)
+                        
+                        activation_success = True
+                        logger.info(f"Método 3 exitoso para activar ventana '{title}'")
+                    except Exception as e3:
+                        error_messages.append(f"Método 3 fallido: {str(e3)}")
+                        logger.warning(f"Método 3 fallido: {str(e3)}")
+            
+            # Si ningún método funcionó para activar la ventana, intentar hacer clic de todas formas
+            if not activation_success:
+                logger.warning("No se pudo activar la ventana, pero se intentará hacer clic de todas formas")
             
             # Obtener la posición y tamaño de la ventana
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             
-            # Añadir un pequeño retraso para asegurar que la ventana está activa
-            time.sleep(0.5)
+            # Añadir un pequeño retraso 
+            time.sleep(1.0)
             
-            # Las coordenadas relativas (47, 61) para el clic
+            # Las coordenadas relativas para el clic (las mismas que en test_ubicacion.py)
             x_rel, y_rel = 47, 61
             
             # Convertir a coordenadas absolutas
             x_abs = left + x_rel
             y_abs = top + y_rel
             
-            # Hacer clic en las coordenadas calculadas
-            pyautogui.click(x_abs, y_abs)
+            # Obtener dimensiones de la pantalla
+            screen_width, screen_height = pyautogui.size()
             
-            logger.info(f"Ventana '{title}' activada y clic realizado en posición relativa ({x_rel}, {y_rel})")
-            return jsonify({
-                'success': True, 
-                'output': f"Ventana '{title}' activada y clic realizado en posición relativa ({x_rel}, {y_rel})"
-            }), 200
+            # Verificar que las coordenadas estén dentro de la pantalla
+            if 0 <= x_abs < screen_width and 0 <= y_abs < screen_height:
+                # Hacer clic en las coordenadas calculadas
+                pyautogui.click(x_abs, y_abs)
+                logger.info(f"Clic realizado en posición relativa ({x_rel}, {y_rel}) de la ventana '{title}'")
+                
+                return jsonify({
+                    'success': True, 
+                    'output': f"Ventana '{title}' encontrada y clic realizado en ({x_rel}, {y_rel})"
+                }), 200
+            else:
+                logger.error(f"Coordenadas calculadas fuera de la pantalla: ({x_abs}, {y_abs})")
+                return jsonify({
+                    'success': False, 
+                    'error': f"Coordenadas calculadas fuera de la pantalla: ({x_abs}, {y_abs})"
+                }), 400
         else:
             logger.error("No se encontró ninguna ventana con 'Scan Validation' en su título")
             return jsonify({
