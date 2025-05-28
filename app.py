@@ -689,7 +689,7 @@ def buscar_codigo(codigo):
 @app.route('/procesar_documento', methods=['POST'])
 @login_required
 def procesar_documento():
-    """Procesa el documento, genera PDF y actualiza CSV."""
+    """Procesa el documento, genera PDF con texto seleccionable y actualiza CSV."""
     try:
         data = request.json
         codigo = data.get('codigo', '').strip()
@@ -719,43 +719,16 @@ def procesar_documento():
         if documento_presente == 'SI' and not image_files:
             return jsonify({'success': False, 'error': 'No hay imágenes para generar el PDF y el documento está marcado como presente'}), 400
         
-        # Crear el PDF según si el documento está presente o no
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
-        
         if documento_presente == 'SI' and image_files:
-            # Crear PDF con imágenes
-            from PIL import Image
-            from reportlab.lib.utils import ImageReader
-            
-            c = canvas.Canvas(pdf_path, pagesize=letter)
-            
-            for img_path in image_files:
-                try:
-                    img = Image.open(img_path)
-                    img_width, img_height = img.size
-                    
-                    # Ajustar tamaño para que quepa en la página
-                    page_width, page_height = letter
-                    ratio = min(page_width / img_width, page_height / img_height) * 0.9
-                    new_width = img_width * ratio
-                    new_height = img_height * ratio
-                    
-                    # Posicionar en el centro de la página
-                    x = (page_width - new_width) / 2
-                    y = (page_height - new_height) / 2
-                    
-                    c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-                    c.showPage()
-                except Exception as e:
-                    logger.error(f"Error procesando imagen {img_path}: {str(e)}")
-                    # Continuar con la siguiente imagen si hay error
-            
-            c.save()
-            logger.info(f"PDF con imágenes generado: {pdf_path}")
+            # Crear PDF con OCR
+            create_searchable_pdf(image_files, pdf_path, codigo)
+            logger.info(f"PDF con texto seleccionable generado: {pdf_path}")
             
         else:  # documento_presente == 'NO'
             # Crear PDF simple con mensaje de documento no presente
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            
             c = canvas.Canvas(pdf_path, pagesize=letter)
             c.setFont("Helvetica-Bold", 14)
             c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
@@ -968,6 +941,134 @@ def generar_cuadratura():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# Nueva función para crear PDF con texto seleccionable
+def create_searchable_pdf(image_files, output_path, codigo):
+    """Crea un PDF con texto seleccionable a partir de las imágenes."""
+    try:
+        from PIL import Image
+        import pytesseract
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.utils import ImageReader
+        from io import BytesIO
+        from PyPDF2 import PdfWriter, PdfReader
+        
+        merger = PdfWriter()
+        
+        for img_path in image_files:
+            try:
+                # Abrir la imagen
+                img = Image.open(img_path)
+                
+                # Realizar OCR para obtener texto
+                text = pytesseract.image_to_string(img, lang='spa')
+                
+                # Crear PDF temporal con la imagen
+                temp_img_pdf = BytesIO()
+                img_width, img_height = img.size
+                
+                # Crear PDF con la imagen
+                c = canvas.Canvas(temp_img_pdf, pagesize=letter)
+                page_width, page_height = letter
+                
+                # Ajustar tamaño para que quepa en la página
+                ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                new_width = img_width * ratio
+                new_height = img_height * ratio
+                
+                # Posicionar en el centro de la página
+                x = (page_width - new_width) / 2
+                y = (page_height - new_height) / 2
+                
+                c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                c.save()
+                
+                # Crear PDF temporal con el texto (invisible)
+                temp_text_pdf = BytesIO()
+                c = canvas.Canvas(temp_text_pdf, pagesize=letter)
+                
+                # Añadir texto invisible sobre la imagen
+                c.setFont("Helvetica", 1)  # Tamaño muy pequeño para que sea invisible
+                c.setFillColorRGB(1, 1, 1, 0)  # Completamente transparente
+                
+                # Añadir el texto OCR como texto invisible
+                text_object = c.beginText(x, y + new_height)
+                text_object.setFont("Helvetica", 10)
+                
+                # Procesar el texto OCR línea por línea
+                for line in text.split('\n'):
+                    if line.strip():  # Ignorar líneas vacías
+                        text_object.textLine(line)
+                
+                # Añadir código de proyecto como texto visible
+                c.setFont("Helvetica", 8)
+                c.setFillColorRGB(0, 0, 0, 1)  # Negro normal
+                c.drawString(20, 20, f"Código: {codigo}")
+                
+                c.drawText(text_object)
+                c.save()
+                
+                # Combinar ambos PDFs
+                img_pdf = PdfReader(temp_img_pdf)
+                text_pdf = PdfReader(temp_text_pdf)
+                
+                page = img_pdf.pages[0]
+                page.merge_page(text_pdf.pages[0])
+                
+                merger.add_page(page)
+                
+            except Exception as e:
+                logger.error(f"Error procesando imagen {img_path}: {str(e)}")
+                # Si hay error con una imagen, continuar con las siguientes
+        
+        # Guardar el PDF final
+        with open(output_path, 'wb') as f:
+            merger.write(f)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error al crear PDF con texto seleccionable: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # En caso de error, intentar crear un PDF básico sin OCR
+        try:
+            from PIL import Image
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.utils import ImageReader
+            
+            c = canvas.Canvas(output_path, pagesize=letter)
+            
+            for img_path in image_files:
+                try:
+                    img = Image.open(img_path)
+                    img_width, img_height = img.size
+                    
+                    # Ajustar tamaño para que quepa en la página
+                    page_width, page_height = letter
+                    ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                    new_width = img_width * ratio
+                    new_height = img_height * ratio
+                    
+                    # Posicionar en el centro de la página
+                    x = (page_width - new_width) / 2
+                    y = (page_height - new_height) / 2
+                    
+                    c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                    c.showPage()
+                except Exception as e2:
+                    logger.error(f"Error en método alternativo para {img_path}: {str(e2)}")
+            
+            c.save()
+            logger.warning("Se creó un PDF sin OCR debido a errores.")
+            return False
+            
+        except Exception as e2:
+            logger.error(f"Error en el método alternativo para crear PDF: {str(e2)}")
+            raise e  # Re-lanzar la excepción original
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
