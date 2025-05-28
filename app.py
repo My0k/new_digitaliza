@@ -64,31 +64,34 @@ def get_latest_images(folder='input', count=None):
         return []
 
 def get_image_data(image_path):
-    """Convierte una imagen a base64 para mostrarla en HTML."""
+    """Obtiene los datos de una imagen para enviar al frontend."""
     try:
-        with Image.open(image_path) as img:
-            # Redimensionar si es necesario
-            max_size = (1200, 1200)
-            img.thumbnail(max_size, Image.LANCZOS)
-            
-            buffer = io.BytesIO()
-            img.save(buffer, format="JPEG")
-            img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            
-            return {
-                'name': os.path.basename(image_path),
-                'path': image_path,
-                'data': f'data:image/jpeg;base64,{img_str}',
-                'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S')
-            }
+        name = os.path.basename(image_path)
+        modified_time = os.path.getmtime(image_path)
+        modified = datetime.fromtimestamp(modified_time).strftime('%d/%m/%Y %H:%M:%S')
+        
+        # Codificar la imagen en base64 para enviarla
+        try:
+            with open(image_path, "rb") as img_file:
+                encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                data_url = f"data:image/jpeg;base64,{encoded_string}"
+        except Exception as e:
+            logger.error(f"Error al codificar imagen {name}: {str(e)}")
+            data_url = None
+        
+        return {
+            'name': name,
+            'path': image_path,
+            'data': data_url,
+            'modified': modified
+        }
     except Exception as e:
-        logger.error(f"Error al procesar imagen {image_path}: {e}")
+        logger.error(f"Error al procesar imagen {image_path}: {str(e)}")
         return {
             'name': os.path.basename(image_path),
             'path': image_path,
             'data': None,
-            'error': str(e),
-            'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S')
+            'modified': 'Error'
         }
 
 # Función para generar un nombre de archivo único basado en timestamp y letras aleatorias
@@ -271,7 +274,15 @@ def upload_file():
 @login_required
 def refresh_images():
     """Endpoint para actualizar las imágenes sin recargar la página completa."""
+    # Verificar si se solicita orden inverso (modo digitalización)
+    reverse_order = request.args.get('reverse', 'false').lower() == 'true'
+    
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
+    
+    # Si se solicita orden inverso, invertir la lista
+    if reverse_order:
+        latest_images.reverse()
+    
     images_data = [get_image_data(img) for img in latest_images]
     
     # Si no hay imágenes, mostrar mensaje
@@ -1210,6 +1221,157 @@ def create_searchable_pdf(image_files, output_path, codigo):
         except Exception as e2:
             logger.error(f"Error en el método alternativo para crear PDF: {str(e2)}")
             raise e  # Re-lanzar la excepción original
+
+@app.route('/generar_carpeta')
+@login_required
+def generar_carpeta():
+    """Crea una carpeta numerada y mueve las imágenes actuales a esa carpeta."""
+    try:
+        # Asegurar que la carpeta base existe
+        base_folder = 'carpetas'
+        os.makedirs(base_folder, exist_ok=True)
+        
+        # Determinar el siguiente número de carpeta
+        existing_folders = [d for d in os.listdir(base_folder) 
+                          if os.path.isdir(os.path.join(base_folder, d)) 
+                          and d.isdigit()]
+        
+        if existing_folders:
+            # Obtener el número más alto y agregar 1
+            next_number = max([int(folder) for folder in existing_folders]) + 1
+        else:
+            # Si no hay carpetas, empezar desde 1
+            next_number = 1
+        
+        # Formato con ceros a la izquierda (0001, 0002, etc.)
+        folder_name = f"{next_number:04d}"
+        folder_path = os.path.join(base_folder, folder_name)
+        
+        # Crear la nueva carpeta
+        os.makedirs(folder_path, exist_ok=True)
+        
+        # Obtener todas las imágenes de la carpeta input
+        input_folder = app.config['UPLOAD_FOLDER']
+        image_files = get_latest_images(input_folder)
+        
+        # Mover archivos a la nueva carpeta
+        moved_files = []
+        for file_path in image_files:
+            file_name = os.path.basename(file_path)
+            destination = os.path.join(folder_path, file_name)
+            shutil.move(file_path, destination)
+            moved_files.append(file_name)
+            
+        logger.info(f"Carpeta generada: {folder_path} con {len(moved_files)} imágenes")
+        
+        return jsonify({
+            'success': True, 
+            'folder': folder_name, 
+            'path': folder_path,
+            'files_moved': len(moved_files)
+        }), 200
+        
+    except Exception as e:
+        error_msg = f"Error al generar carpeta: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/get_folders')
+@login_required
+def get_folders():
+    """Obtiene la lista de carpetas numeradas y opcionalmente el contenido de una carpeta específica"""
+    try:
+        # Añadir registro de depuración
+        logger.info("Accediendo a get_folders")
+        
+        # Obtener la carpeta solicitada (si hay)
+        folder_id = request.args.get('folder', None)
+        logger.info(f"Carpeta solicitada: {folder_id}")
+        
+        # Obtener todas las carpetas numeradas
+        base_folder = 'carpetas'
+        if not os.path.exists(base_folder):
+            logger.info(f"Creando directorio base: {base_folder}")
+            os.makedirs(base_folder, exist_ok=True)
+            
+        # Listar todas las carpetas y registrar para depuración
+        all_items = os.listdir(base_folder)
+        logger.info(f"Todos los elementos en {base_folder}: {all_items}")
+        
+        folders = [d for d in all_items 
+                 if os.path.isdir(os.path.join(base_folder, d)) 
+                 and d.isdigit()]
+        
+        logger.info(f"Carpetas filtradas: {folders}")
+        
+        # Ordenar carpetas numéricamente
+        folders.sort(key=int)
+        
+        # Si no hay carpetas, devolver una lista vacía
+        if not folders:
+            logger.info("No se encontraron carpetas numeradas")
+            return jsonify({
+                'folders': [],
+                'current_folder': None,
+                'images': []
+            })
+        
+        # Si no se especificó una carpeta, usar la primera
+        if not folder_id and folders:
+            folder_id = folders[0]
+            logger.info(f"Usando primera carpeta: {folder_id}")
+        
+        # Si la carpeta especificada no existe, usar la primera
+        if folder_id not in folders and folders:
+            logger.info(f"Carpeta {folder_id} no existe, usando {folders[0]}")
+            folder_id = folders[0]
+        
+        # Obtener imágenes de la carpeta seleccionada
+        images = []
+        if folder_id:
+            folder_path = os.path.join(base_folder, folder_id)
+            logger.info(f"Buscando imágenes en: {folder_path}")
+            
+            # Verificar si el directorio existe
+            if not os.path.exists(folder_path):
+                logger.error(f"¡Error! El directorio {folder_path} no existe")
+                return jsonify({
+                    'folders': folders,
+                    'current_folder': folder_id,
+                    'images': [],
+                    'error': f"El directorio {folder_path} no existe"
+                })
+            
+            # Buscar archivos jpg/jpeg
+            image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
+            logger.info(f"Archivos de imágenes encontrados: {len(image_files)}")
+            
+            if image_files:
+                image_files.sort(key=os.path.getmtime)  # Ordenar por fecha de modificación
+                
+                # Convertir imágenes a formato para la UI
+                try:
+                    images = [get_image_data(img) for img in image_files]
+                    logger.info(f"Imágenes procesadas: {len(images)}")
+                except Exception as img_error:
+                    logger.error(f"Error al procesar imágenes: {str(img_error)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+        
+        return jsonify({
+            'folders': folders,
+            'current_folder': folder_id,
+            'images': images
+        })
+        
+    except Exception as e:
+        error_msg = f"Error al obtener carpetas: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': error_msg}), 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
