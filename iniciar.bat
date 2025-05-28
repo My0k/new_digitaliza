@@ -66,11 +66,24 @@ rem Crear carpetas necesarias si no existen
 if not exist "input" mkdir input
 if not exist "pdf_procesado" mkdir pdf_procesado
 
-rem Iniciar la aplicación Flask
+rem Iniciar la aplicación Flask en un nuevo proceso
 echo.
 echo ===== Iniciando aplicacion Flask =====
 echo.
-python app.py
+start /b cmd /c python app.py
+
+rem Esperar unos segundos para que Flask inicie
+timeout /t 5 /nobreak > nul
+
+rem Mostrar mensaje y abrir navegador
+echo.
+echo =======================
+echo INICIA EL NAVEGADOR EN LOCALHOST:5000
+echo =======================
+echo.
+
+rem Abrir Edge en localhost:5000
+start microsoft-edge:http://localhost:5000
 
 rem Mantener la ventana abierta
 pause

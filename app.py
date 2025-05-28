@@ -316,46 +316,71 @@ def rotate_image(filename, direction):
 @app.route('/scan')
 @login_required
 def scan_documents():
-    """Ejecuta el script de escaneo."""
+    """Ejecuta la acción de cambiar a ventana Scan Validation y hacer clic."""
     try:
-        # Ruta al script de escaneo
-        script_path = os.path.join('functions', 'gen_test_input.py')
+        logger.info("Iniciando proceso de escaneo mediante cambio de ventana")
         
-        # Verificar si el script existe
-        if not os.path.exists(script_path):
-            logger.error(f"Script de escaneo no encontrado: {script_path}")
-            return jsonify({'success': False, 'error': 'Script de escaneo no encontrado'}), 404
+        # Importar módulos necesarios
+        import win32gui
+        import re
+        import pyautogui
+        import time
         
-        # Ejecutar el script usando sys.executable (el python actual)
-        import sys
-        logger.info(f"Ejecutando script de escaneo: {script_path}")
-        result = subprocess.run([sys.executable, script_path], 
-                               capture_output=True, 
-                               text=False)  # Cambiar a False para manejar bytes
+        # Función para encontrar ventana por título
+        def find_window_with_title(title_pattern):
+            """Encuentra ventanas que coinciden con un patrón en su título"""
+            result = []
+            
+            def callback(hwnd, pattern):
+                window_title = win32gui.GetWindowText(hwnd)
+                if re.search(pattern, window_title, re.IGNORECASE) and win32gui.IsWindowVisible(hwnd):
+                    result.append((hwnd, window_title))
+                return True
+            
+            win32gui.EnumWindows(callback, title_pattern)
+            return result
         
-        # Decodificar la salida manualmente con codificación adecuada para Windows
-        stdout = ""
-        stderr = ""
-        try:
-            if result.stdout:
-                stdout = result.stdout.decode('cp1252', errors='replace')
-            if result.stderr:
-                stderr = result.stderr.decode('cp1252', errors='replace')
-        except UnicodeDecodeError:
-            # Fallback a otra codificación si cp1252 falla
-            if result.stdout:
-                stdout = result.stdout.decode('latin-1', errors='replace')
-            if result.stderr:
-                stderr = result.stderr.decode('latin-1', errors='replace')
+        # Buscar la ventana "Scan Validation"
+        windows = find_window_with_title("Scan Validation")
         
-        if result.returncode == 0:
-            logger.info("Escaneo completado con éxito")
-            return jsonify({'success': True, 'output': stdout}), 200
+        if windows:
+            hwnd, title = windows[0]  # Tomar la primera ventana encontrada
+            
+            # Activar la ventana encontrada
+            win32gui.SetForegroundWindow(hwnd)
+            
+            # Obtener la posición y tamaño de la ventana
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            
+            # Añadir un pequeño retraso para asegurar que la ventana está activa
+            time.sleep(0.5)
+            
+            # Las coordenadas relativas (47, 61) para el clic
+            x_rel, y_rel = 47, 61
+            
+            # Convertir a coordenadas absolutas
+            x_abs = left + x_rel
+            y_abs = top + y_rel
+            
+            # Hacer clic en las coordenadas calculadas
+            pyautogui.click(x_abs, y_abs)
+            
+            logger.info(f"Ventana '{title}' activada y clic realizado en posición relativa ({x_rel}, {y_rel})")
+            return jsonify({
+                'success': True, 
+                'output': f"Ventana '{title}' activada y clic realizado en posición relativa ({x_rel}, {y_rel})"
+            }), 200
         else:
-            logger.error(f"Error al ejecutar el script de escaneo: {stderr}")
-            return jsonify({'success': False, 'error': stderr}), 500
+            logger.error("No se encontró ninguna ventana con 'Scan Validation' en su título")
+            return jsonify({
+                'success': False, 
+                'error': "No se encontró ninguna ventana con 'Scan Validation' en su título"
+            }), 404
+            
     except Exception as e:
-        logger.error(f"Error al ejecutar el escaneo: {str(e)}")
+        logger.error(f"Error al ejecutar acción de escaneo: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/ocr')
