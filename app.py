@@ -63,27 +63,59 @@ def get_latest_images(folder='input', count=None):
         logger.error(f"Error al obtener imágenes: {e}")
         return []
 
-def get_image_data(image_path):
-    """Obtiene los datos de una imagen para enviar al frontend."""
+def get_image_data(image_path, thumbnail=True, max_size=800):
+    """Obtiene los datos de una imagen para enviar al frontend.
+    Si thumbnail es True, genera una versión comprimida de la imagen."""
     try:
         name = os.path.basename(image_path)
         modified_time = os.path.getmtime(image_path)
         modified = datetime.fromtimestamp(modified_time).strftime('%d/%m/%Y %H:%M:%S')
         
-        # Codificar la imagen en base64 para enviarla
+        # Codificar la imagen en base64 para enviarla, opcionalmente generando thumbnail
         try:
-            with open(image_path, "rb") as img_file:
-                encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
-                data_url = f"data:image/jpeg;base64,{encoded_string}"
+            if thumbnail:
+                # Crear una versión comprimida de la imagen
+                with Image.open(image_path) as img:
+                    # Conservar la proporción de aspecto pero limitar tamaño máximo
+                    img.thumbnail((max_size, max_size), Image.LANCZOS)
+                    
+                    # Convertir a RGB si es necesario (en caso de imágenes RGBA)
+                    if img.mode in ('RGBA', 'LA'):
+                        background = Image.new(img.mode[:-1], img.size, (255, 255, 255))
+                        background.paste(img, img.split()[-1])
+                        img = background
+                    
+                    # Guardar la imagen comprimida en un buffer en memoria
+                    buffer = BytesIO()
+                    img.save(buffer, format="JPEG", quality=70, optimize=True)
+                    buffer.seek(0)
+                    
+                    # Codificar en base64
+                    encoded_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                    data_url = f"data:image/jpeg;base64,{encoded_string}"
+                    
+                    # Liberar memoria
+                    buffer.close()
+                    del img
+            else:
+                # Usar la imagen original
+                with open(image_path, "rb") as img_file:
+                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                    data_url = f"data:image/jpeg;base64,{encoded_string}"
         except Exception as e:
             logger.error(f"Error al codificar imagen {name}: {str(e)}")
             data_url = None
+        
+        # Forzar recolección de basura después de procesar la imagen
+        import gc
+        gc.collect()
         
         return {
             'name': name,
             'path': image_path,
             'data': data_url,
-            'modified': modified
+            'modified': modified,
+            'is_thumbnail': thumbnail
         }
     except Exception as e:
         logger.error(f"Error al procesar imagen {image_path}: {str(e)}")
@@ -91,7 +123,8 @@ def get_image_data(image_path):
             'name': os.path.basename(image_path),
             'path': image_path,
             'data': None,
-            'modified': 'Error'
+            'modified': 'Error',
+            'is_thumbnail': False
         }
 
 # Función para generar un nombre de archivo único basado en timestamp y letras aleatorias
@@ -283,6 +316,15 @@ def refresh():
         # Determinar si debemos mostrar las imágenes en orden inverso
         reverse = request.args.get('reverse', 'false').lower() == 'true'
         
+        # Parámetro para decidir si usar miniaturas (por defecto, sí)
+        use_thumbnails = request.args.get('thumbnails', 'true').lower() == 'true'
+        
+        # Obtener tamaño máximo de miniaturas (por defecto 800px)
+        try:
+            max_size = int(request.args.get('max_size', '800'))
+        except ValueError:
+            max_size = 800
+        
         # Obtener imágenes de la carpeta input
         image_paths = get_latest_images()
         
@@ -292,8 +334,12 @@ def refresh():
         else:
             image_paths.sort(key=os.path.getmtime, reverse=True)  # Más recientes primero
         
-        # Convertir a formato para UI
-        image_data = [get_image_data(img) for img in image_paths]
+        # Convertir a formato para UI, usando miniaturas
+        image_data = [get_image_data(img, thumbnail=use_thumbnails, max_size=max_size) for img in image_paths]
+        
+        # Forzar recolección de basura después de procesar todas las imágenes
+        import gc
+        gc.collect()
         
         return jsonify(image_data)
     except Exception as e:
@@ -1334,6 +1380,15 @@ def get_folders():
                     'error': f"El directorio {folder_path} no existe"
                 })
             
+            # Parámetro para decidir si usar miniaturas (por defecto, sí)
+            use_thumbnails = request.args.get('thumbnails', 'true').lower() == 'true'
+            
+            # Obtener tamaño máximo de miniaturas (por defecto 800px)
+            try:
+                max_size = int(request.args.get('max_size', '800'))
+            except ValueError:
+                max_size = 800
+            
             # Buscar archivos jpg/jpeg
             image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
             logger.info(f"Archivos de imágenes encontrados: {len(image_files)}")
@@ -1341,14 +1396,18 @@ def get_folders():
             if image_files:
                 image_files.sort(key=os.path.getmtime)  # Ordenar por fecha de modificación
                 
-                # Convertir imágenes a formato para la UI
+                # Convertir imágenes a formato para la UI, usando miniaturas
                 try:
-                    images = [get_image_data(img) for img in image_files]
+                    images = [get_image_data(img, thumbnail=use_thumbnails, max_size=max_size) for img in image_files]
                     logger.info(f"Imágenes procesadas: {len(images)}")
                 except Exception as img_error:
                     logger.error(f"Error al procesar imágenes: {str(img_error)}")
                     import traceback
                     logger.error(traceback.format_exc())
+                
+                # Forzar recolección de basura después de procesar todas las imágenes
+                import gc
+                gc.collect()
         
         return jsonify({
             'folders': folders,
