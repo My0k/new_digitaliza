@@ -15,15 +15,23 @@
                 <i class="fas fa-file-alt me-2"></i>
                 Visor de Documentos
             </a>
-            <div class="d-flex">
-                <button id="newDigitalizationBtn" class="btn btn-outline-light me-2">
-                    <i class="fas fa-plus-circle me-1"></i> Nueva Digitalización
-                </button>
-                <button id="scanBtn" class="btn btn-outline-light me-2">
-                    <i class="fas fa-scanner me-1"></i> Escanear
-                </button>
-                <button id="refreshBtn" class="btn btn-outline-light">
-                    <i class="fas fa-sync-alt me-1"></i> Actualizar
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="btn-group">
+                    <button id="refreshBtn" class="btn btn-outline-primary">
+                        <i class="fas fa-sync-alt me-1"></i> Actualizar
+                    </button>
+                    <button id="cuadraturaBtn" class="btn btn-outline-success">
+                        <i class="fas fa-file-excel me-1"></i> Generar Cuadratura
+                    </button>
+                    <button id="scanBtn" class="btn btn-outline-secondary">
+                        <i class="fas fa-scanner me-1"></i> Escanear
+                    </button>
+                    <button id="newDigitalizationBtn" class="btn btn-outline-dark">
+                        <i class="fas fa-file me-1"></i> Nueva Digitalización
+                    </button>
+                </div>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                    <i class="fas fa-upload me-1"></i> Subir Imágenes
                 </button>
             </div>
         </div>

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, flash, send_file
 import os
 import glob
 from datetime import datetime
@@ -19,6 +19,8 @@ from PyPDF2 import PdfWriter, PdfReader
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import functools
+import pandas as pd
+from io import BytesIO
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
@@ -891,6 +893,81 @@ def get_images():
         })
     
     return images_data
+
+@app.route('/generar_cuadratura')
+@login_required
+def generar_cuadratura():
+    """Genera un archivo Excel con los datos del CSV."""
+    try:
+        # Crear carpeta excel si no existe
+        excel_folder = 'excel'
+        os.makedirs(excel_folder, exist_ok=True)
+        
+        # Leer el CSV
+        csv_path = 'db_input.csv'
+        if not os.path.exists(csv_path):
+            return jsonify({'success': False, 'error': 'Archivo CSV no encontrado'}), 404
+        
+        df = pd.read_csv(csv_path)
+        
+        # Crear un archivo Excel en memoria
+        output = BytesIO()
+        
+        # Crear un writer de Excel
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Convertir DataFrame a Excel
+            df.to_excel(writer, sheet_name='Cuadratura', index=False)
+            
+            # Obtener el objeto workbook y worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Cuadratura']
+            
+            # Formato para los encabezados
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#D7E4BC',
+                'border': 1
+            })
+            
+            # Aplicar formato a los encabezados
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+                worksheet.set_column(col_num, col_num, 15)  # Ancho de columna
+            
+            # Autoajustar columnas
+            for i, col in enumerate(df.columns):
+                column_len = max(df[col].astype(str).map(len).max(), len(col))
+                worksheet.set_column(i, i, column_len + 2)
+        
+        # Generar nombre de archivo con timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_filename = f"cuadratura_{timestamp}.xlsx"
+        excel_path = os.path.join(excel_folder, excel_filename)
+        
+        # Guardar el Excel en el sistema de archivos
+        with open(excel_path, 'wb') as f:
+            f.write(output.getvalue())
+        
+        # Configurar la respuesta para descargar el archivo
+        output.seek(0)
+        
+        logger.info(f"Cuadratura generada: {excel_filename}")
+        
+        # Devolver el archivo para descarga
+        return send_file(
+            BytesIO(output.getvalue()),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=excel_filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Error al generar cuadratura: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

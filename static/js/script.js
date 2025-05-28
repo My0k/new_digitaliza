@@ -83,6 +83,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Actualizar la interfaz para mostrar solo lo necesario
     updateInterface();
+
+    // Añadir el event listener para el botón de cuadratura
+    document.getElementById('cuadraturaBtn').addEventListener('click', function() {
+        generarCuadratura();
+    });
 });
 
 // Variable para almacenar la última modificación conocida
@@ -823,5 +828,53 @@ function buscarCodigo(codigo) {
         .catch(error => {
             console.error('Error al buscar código:', error);
             return { success: false, error: 'Error al buscar el código' };
+        });
+}
+
+// Función para generar la cuadratura
+function generarCuadratura() {
+    // Mostrar indicador de carga
+    const cuadraturaBtn = document.getElementById('cuadraturaBtn');
+    const originalText = cuadraturaBtn.innerHTML;
+    cuadraturaBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando...';
+    cuadraturaBtn.disabled = true;
+    
+    // Llamar al endpoint para generar la cuadratura
+    fetch('/generar_cuadratura')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Error al generar la cuadratura');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            // Crear un enlace de descarga para el archivo Excel
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            // Obtener la fecha y hora actual para el nombre del archivo
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, '-');
+            
+            a.href = url;
+            a.download = `cuadratura_${timestamp}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Limpiar
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // Mostrar mensaje de éxito
+            alert('Cuadratura generada correctamente');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al generar la cuadratura: ' + error.message);
+        })
+        .finally(() => {
+            // Restaurar el botón
+            cuadraturaBtn.innerHTML = originalText;
+            cuadraturaBtn.disabled = false;
         });
 }

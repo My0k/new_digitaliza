@@ -1,0 +1,9 @@
+flask
+pillow
+pytesseract
+reportlab
+watchdog
+python-dotenv
+pandas
+xlsxwriter
+openpyxl 
