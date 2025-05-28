@@ -269,7 +269,16 @@ La carpeta ${currentFolder} ha sido eliminada.
                 resetWorkflow();
                 
                 // Recargar la lista de carpetas
-                loadFolders();
+                await loadFolders();
+                
+                // Seleccionar automáticamente la siguiente carpeta disponible
+                selectNextFolder();
+                
+                // Recargar la página para empezar fresco con la nueva carpeta
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500); // Esperar 1.5 segundos para que el usuario vea el mensaje de éxito
+                
             } else {
                 // Mostrar mensaje de error
                 showAlert(`Error: ${result.error || 'Error desconocido'}`, 'danger');
@@ -285,6 +294,21 @@ La carpeta ${currentFolder} ha sido eliminada.
             if (workflowButton) {
                 workflowButton.disabled = false;
                 updateButtonState();
+            }
+        }
+    }
+    
+    // Función para seleccionar automáticamente la siguiente carpeta disponible
+    function selectNextFolder() {
+        const folderSelector = document.getElementById('folderSelector');
+        if (folderSelector && folderSelector.options.length > 0) {
+            // Seleccionar la primera opción disponible (después de "Seleccionar carpeta")
+            if (folderSelector.options.length > 1) {
+                folderSelector.selectedIndex = 1;
+                
+                // Disparar evento de cambio para cargar las imágenes de la carpeta
+                const event = new Event('change');
+                folderSelector.dispatchEvent(event);
             }
         }
     }

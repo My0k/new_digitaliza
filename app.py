@@ -807,7 +807,7 @@ def generate_pdf():
             'filename': pdf_filename,
             'path': pdf_path
         })
-        
+    
     except Exception as e:
         error_msg = f"Error al generar PDF: {str(e)}"
         logger.error(error_msg)
@@ -899,7 +899,7 @@ def buscar_codigo(codigo):
 @app.route('/process_and_finalize', methods=['POST'])
 @login_required
 def process_and_finalize():
-    """Procesa las imágenes, genera un PDF con OCR y elimina la carpeta de origen."""
+    """Procesa las imágenes, genera un PDF con OCR, actualiza el CSV y elimina la carpeta de origen."""
     try:
         # Obtener datos del formulario
         project_code = request.form.get('projectCode', '').strip()
@@ -954,122 +954,232 @@ def process_and_finalize():
         pdf_path = os.path.join(pdf_dir, pdf_filename)
         pdf_temp_path = os.path.join(pdf_dir, f"temp_{pdf_filename}")
         
+        pdf_generated = False
+        
         # Generar PDF según si el documento está presente o no
         if document_present == 'SI' and image_paths:
-            # Paso 1: Crear el PDF inicial con las imágenes
-            from PIL import Image
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.utils import ImageReader
-            
-            c = canvas.Canvas(pdf_temp_path, pagesize=letter)
-            
-            # Añadir cada imagen como una página del PDF
-            for img_path in image_paths:
+            try:
+                # Paso 1: Crear el PDF inicial con las imágenes
+                from PIL import Image
+                from reportlab.lib.pagesizes import letter
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.utils import ImageReader
+                
+                c = canvas.Canvas(pdf_temp_path, pagesize=letter)
+                
+                # Añadir cada imagen como una página del PDF
+                for img_path in image_paths:
+                    try:
+                        with Image.open(img_path) as img:
+                            img_width, img_height = img.size
+                            
+                            # Ajustar tamaño para que quepa en la página
+                            page_width, page_height = letter
+                            ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                            new_width = img_width * ratio
+                            new_height = img_height * ratio
+                            
+                            # Posicionar en el centro de la página
+                            x = (page_width - new_width) / 2
+                            y = (page_height - new_height) / 2
+                            
+                            c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                            c.showPage()
+                    except Exception as page_err:
+                        logger.error(f"Error al procesar página de imagen {img_path}: {str(page_err)}")
+                
+                # Guardar el PDF temporal
+                c.save()
+                
+                # Paso 2: Aplicar OCR al PDF temporal
                 try:
-                    with Image.open(img_path) as img:
-                        img_width, img_height = img.size
-                        
-                        # Ajustar tamaño para que quepa en la página
-                        page_width, page_height = letter
-                        ratio = min(page_width / img_width, page_height / img_height) * 0.9
-                        new_width = img_width * ratio
-                        new_height = img_height * ratio
-                        
-                        # Posicionar en el centro de la página
-                        x = (page_width - new_width) / 2
-                        y = (page_height - new_height) / 2
-                        
-                        c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-                        c.showPage()
-                except Exception as page_err:
-                    logger.error(f"Error al procesar página de imagen {img_path}: {str(page_err)}")
-            
-            # Guardar el PDF temporal
-            c.save()
-            
-            # Paso 2: Aplicar OCR al PDF temporal
-            try:
-                # Primero intentamos con ocrmypdf (requiere instalación)
-                import subprocess
+                    # Primero intentamos con ocrmypdf (requiere instalación)
+                    import subprocess
+                    
+                    # Verificar que el PDF temporal se haya creado correctamente
+                    if not os.path.exists(pdf_temp_path):
+                        raise FileNotFoundError(f"El archivo temporal {pdf_temp_path} no existe")
+                    
+                    # Intentar ejecutar ocrmypdf
+                    logger.info(f"Aplicando OCR al PDF con ocrmypdf...")
+                    ocr_cmd = [
+                        'ocrmypdf',
+                        '--deskew',              # Corregir inclinación
+                        '--clean',               # Limpiar imagen
+                        '--optimize', '3',       # Optimizar PDF (nivel 3)
+                        '--language', 'spa',     # Idioma español
+                        '--output-type', 'pdf',  # Tipo de salida
+                        pdf_temp_path,           # PDF de entrada
+                        pdf_path                 # PDF de salida
+                    ]
+                    
+                    result = subprocess.run(ocr_cmd, capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        logger.warning(f"ocrmypdf falló: {result.stderr}")
+                        # Si ocrmypdf falló, usamos el PDF sin OCR
+                        if os.path.exists(pdf_temp_path):
+                            shutil.copy(pdf_temp_path, pdf_path)
+                            pdf_generated = True
+                        else:
+                            raise FileNotFoundError(f"No se encontró el archivo temporal después de ocrmypdf")
+                    else:
+                        logger.info("OCR aplicado correctamente con ocrmypdf")
+                        pdf_generated = True
+                    
+                except Exception as ocr_err:
+                    logger.warning(f"Error al aplicar OCR con ocrmypdf: {str(ocr_err)}")
+                    # Si ocrmypdf no está disponible o falla, usamos el PDF sin OCR si existe
+                    if os.path.exists(pdf_temp_path):
+                        shutil.copy(pdf_temp_path, pdf_path)
+                        pdf_generated = True
+                    else:
+                        logger.error(f"No se pudo generar el PDF: {str(ocr_err)}")
                 
-                # Intentar ejecutar ocrmypdf
-                logger.info(f"Aplicando OCR al PDF con ocrmypdf...")
-                ocr_cmd = [
-                    'ocrmypdf',
-                    '--deskew',              # Corregir inclinación
-                    '--clean',               # Limpiar imagen
-                    '--optimize', '3',       # Optimizar PDF (nivel 3)
-                    '--language', 'spa',     # Idioma español
-                    '--output-type', 'pdf',  # Tipo de salida
-                    pdf_temp_path,           # PDF de entrada
-                    pdf_path                 # PDF de salida
-                ]
-                
-                result = subprocess.run(ocr_cmd, capture_output=True, text=True)
-                
-                if result.returncode != 0:
-                    logger.warning(f"ocrmypdf falló: {result.stderr}")
-                    # Si ocrmypdf falló, usamos el PDF sin OCR
-                    shutil.copy(pdf_temp_path, pdf_path)
-                else:
-                    logger.info("OCR aplicado correctamente con ocrmypdf")
-                
-            except Exception as ocr_err:
-                logger.warning(f"Error al aplicar OCR con ocrmypdf: {str(ocr_err)}")
-                # Si ocrmypdf no está disponible o falla, usamos el PDF sin OCR
-                shutil.copy(pdf_temp_path, pdf_path)
+                # Eliminar el archivo temporal solo si existe
+                if os.path.exists(pdf_temp_path):
+                    try:
+                        os.remove(pdf_temp_path)
+                    except Exception as rm_err:
+                        logger.warning(f"Error al eliminar archivo temporal: {str(rm_err)}")
             
-            # Eliminar el archivo temporal
-            try:
-                os.remove(pdf_temp_path)
-            except:
-                pass
-            
+            except Exception as pdf_err:
+                logger.error(f"Error al generar PDF inicial: {str(pdf_err)}")
+                return jsonify({
+                    'success': False,
+                    'error': f"Error al generar PDF: {str(pdf_err)}"
+                }), 500
+                
         else:
             # Si el documento no está presente, crear un PDF simple con la observación
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            
-            c = canvas.Canvas(pdf_path, pagesize=letter)
-            c.setFont("Helvetica-Bold", 14)
-            c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
-            
-            if observation:
-                c.setFont("Helvetica", 12)
-                c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
-                # Dividir la observación en líneas si es muy larga
-                c.setFont("Helvetica", 10)
-                text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
-                for line in observation.split('\n'):
-                    text_object.textLine(line)
-                c.drawText(text_object)
+            try:
+                from reportlab.lib.pagesizes import letter
+                from reportlab.pdfgen import canvas
                 
-            if box_number:
-                c.setFont("Helvetica", 12)
-                c.drawCentredString(letter[0]/2, letter[1]/2 - 80, f"Caja: {box_number}")
-            
-            c.save()
+                c = canvas.Canvas(pdf_path, pagesize=letter)
+                c.setFont("Helvetica-Bold", 14)
+                c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
+                
+                if observation:
+                    c.setFont("Helvetica", 12)
+                    c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
+                    # Dividir la observación en líneas si es muy larga
+                    c.setFont("Helvetica", 10)
+                    text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
+                    for line in observation.split('\n'):
+                        text_object.textLine(line)
+                    c.drawText(text_object)
+                    
+                if box_number:
+                    c.setFont("Helvetica", 12)
+                    c.drawCentredString(letter[0]/2, letter[1]/2 - 80, f"Caja: {box_number}")
+                
+                c.save()
+                pdf_generated = True
+                
+            except Exception as no_doc_err:
+                logger.error(f"Error al generar PDF para documento no presente: {str(no_doc_err)}")
+                return jsonify({
+                    'success': False,
+                    'error': f"Error al generar PDF: {str(no_doc_err)}"
+                }), 500
         
-        # Eliminar la carpeta después de procesarla
-        try:
-            shutil.rmtree(base_dir)
-            logger.info(f"Carpeta eliminada: {base_dir}")
-        except Exception as rm_err:
-            logger.error(f"Error al eliminar carpeta {base_dir}: {str(rm_err)}")
+        # Verificar que el PDF se generó correctamente
+        if not pdf_generated or not os.path.exists(pdf_path):
             return jsonify({
                 'success': False,
-                'error': f"Se generó el PDF pero no se pudo eliminar la carpeta: {str(rm_err)}"
+                'error': "No se pudo generar el PDF"
             }), 500
         
+        # Actualizar CSV con los datos del documento
+        try:
+            csv_path = 'db_input.csv'
+            
+            # Verificar si el archivo CSV existe, si no, crearlo con los encabezados
+            if not os.path.exists(csv_path):
+                with open(csv_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['CODIGO', 'NOMBRE_INICIATIVA', 'CAJA', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH'])
+            
+            # Leer el CSV actual
+            rows = []
+            codigo_encontrado = False
+            headers = None
+            
+            try:
+                with open(csv_path, 'r', encoding='utf-8') as file:
+                    reader = csv.DictReader(file)
+                    headers = reader.fieldnames
+                    
+                    # Asegurarse de que todos los encabezados necesarios estén presentes
+                    required_headers = ['CODIGO', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH', 'CAJA']
+                    for header in required_headers:
+                        if header not in headers:
+                            headers.append(header)
+                    
+                    # Leer todas las filas
+                    for row in reader:
+                        if row.get('CODIGO') == project_code:
+                            # Actualizar la fila existente
+                            row['DOC_PRESENTE'] = document_present
+                            row['OBSERVACION'] = observation
+                            row['PDF_PATH'] = pdf_path
+                            row['CAJA'] = box_number
+                            codigo_encontrado = True
+                        rows.append(row)
+            except Exception as csv_read_err:
+                logger.error(f"Error al leer CSV: {str(csv_read_err)}")
+                # Si hay error al leer, crear una nueva fila sin preocuparse por duplicados
+                codigo_encontrado = False
+                # Usar encabezados por defecto si no se pudieron leer
+                headers = ['CODIGO', 'NOMBRE_INICIATIVA', 'CAJA', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH']
+            
+            # Si el código no existe, agregar una nueva fila
+            if not codigo_encontrado:
+                new_row = {
+                    'CODIGO': project_code,
+                    'NOMBRE_INICIATIVA': '',  # Campo vacío para nombre de iniciativa
+                    'CAJA': box_number,
+                    'DOC_PRESENTE': document_present,
+                    'OBSERVACION': observation,
+                    'PDF_PATH': pdf_path
+                }
+                rows.append(new_row)
+            
+            # Escribir el CSV actualizado
+            with open(csv_path, 'w', newline='', encoding='utf-8') as file:
+                writer = csv.DictWriter(file, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(rows)
+            logger.info(f"CSV actualizado con datos del documento {project_code}")
+            
+        except Exception as csv_err:
+            logger.error(f"Error al actualizar CSV: {str(csv_err)}")
+            return jsonify({
+                'success': False,
+                'error': f"Se generó el PDF pero no se pudo actualizar el CSV: {str(csv_err)}"
+            }), 500
+        
+        # AHORA SÍ: Eliminar la carpeta después de que todo esté listo
+        folder_removed = False
+        try:
+            if os.path.exists(base_dir):
+                shutil.rmtree(base_dir)
+                folder_removed = True
+                logger.info(f"Carpeta eliminada: {base_dir}")
+        except Exception as rm_err:
+            logger.error(f"Error al eliminar carpeta {base_dir}: {str(rm_err)}")
+            # No interrumpimos el proceso si falla la eliminación de la carpeta
+        
         return jsonify({
-            'success': True,
+            'success': True, 
             'filename': pdf_filename,
             'folder': folder_id,
             'path': pdf_path,
             'document_present': document_present,
             'box_number': box_number,
-            'observation': observation
+            'observation': observation,
+            'folder_removed': folder_removed
         })
         
     except Exception as e:
