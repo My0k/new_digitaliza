@@ -53,11 +53,12 @@ document.addEventListener('DOMContentLoaded', function() {
             // Obtener los valores de documento presente y observación
             const documentoPresente = document.getElementById('documentPresent').value;
             const observacion = document.getElementById('observation').value;
+            const boxNumber = document.getElementById('boxNumber').value.trim();
             
             // Preguntar al usuario si desea continuar
             if (confirm(`Estás añadiendo ${codigo}.pdf para el proyecto: ${nombreProyecto}\n\n¿Continuar?`)) {
                 // Procesar el documento
-                procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion);
+                procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion, boxNumber);
             }
         });
     });
@@ -87,6 +88,48 @@ document.addEventListener('DOMContentLoaded', function() {
     // Añadir el event listener para el botón de cuadratura
     document.getElementById('cuadraturaBtn').addEventListener('click', function() {
         generarCuadratura();
+    });
+
+    // Cuando se busca un código de proyecto
+    document.getElementById('projectCode').addEventListener('blur', function() {
+        const codigo = this.value.trim();
+        if (codigo.length > 0) {
+            fetch(`/buscar_codigo/${codigo}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Autocompletar campos con los datos del proyecto
+                        const proyecto = data.proyecto;
+                        
+                        // Mostrar el número de caja si está disponible
+                        if (proyecto.CAJA) {
+                            document.getElementById('boxNumber').value = proyecto.CAJA;
+                        } else {
+                            document.getElementById('boxNumber').value = '';
+                        }
+                        
+                        // Completar otros campos si están disponibles
+                        if (proyecto.DOC_PRESENTE) {
+                            document.getElementById('documentPresent').value = proyecto.DOC_PRESENTE;
+                        }
+                        
+                        if (proyecto.OBSERVACION) {
+                            document.getElementById('observation').value = proyecto.OBSERVACION;
+                        }
+                        
+                        // Mostrar alguna notificación de éxito o completar otros campos
+                        console.log("Proyecto encontrado:", proyecto);
+                    } else {
+                        // Limpiar campos si el código no existe
+                        document.getElementById('boxNumber').value = '';
+                        // Mostrar mensaje de error
+                        console.error("Error:", data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error("Error en la búsqueda:", error);
+                });
+        }
     });
 });
 
@@ -492,7 +535,7 @@ function scanDocuments() {
 }
 
 // Función para procesar el documento
-function procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion) {
+function procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion, boxNumber) {
     const processBtn = document.getElementById('processBtn');
     const originalText = processBtn.innerHTML;
     processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
@@ -518,7 +561,8 @@ function procesarDocumento(codigo, nombreProyecto, documentoPresente, observacio
             nombreProyecto: nombreProyecto,
             documentoPresente: documentoPresente,
             observacion: observacion,
-            selectedImages: selectedImages
+            selectedImages: selectedImages,
+            boxNumber: boxNumber
         }),
     })
     .then(response => response.json())

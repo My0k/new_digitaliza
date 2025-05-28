@@ -701,7 +701,15 @@ def buscar_codigo(codigo):
             csv_reader = csv.DictReader(file)
             for row in csv_reader:
                 if row.get('CODIGO') == codigo:
-                    return jsonify({'success': True, 'proyecto': row}), 200
+                    # Asegurarse de que se incluye el campo CAJA en la respuesta
+                    proyecto = {
+                        'CODIGO': row.get('CODIGO', ''),
+                        'NOMBRE_INICIATIVA': row.get('NOMBRE_INICIATIVA', ''),
+                        'CAJA': row.get('CAJA', ''),
+                        'DOC_PRESENTE': row.get('DOC_PRESENTE', 'SI'),
+                        'OBSERVACION': row.get('OBSERVACION', '')
+                    }
+                    return jsonify({'success': True, 'proyecto': proyecto}), 200
         
         # Si llegamos aquí, el código no se encontró
         return jsonify({'success': False, 'error': 'Código no encontrado'}), 404
@@ -721,6 +729,7 @@ def procesar_documento():
         documento_presente = data.get('documentoPresente', 'SI')
         observacion = data.get('observacion', '')
         selected_images = data.get('selectedImages', [])
+        box_number = data.get('boxNumber', '')  # Nuevo campo para número de caja
         
         if not codigo:
             return jsonify({'success': False, 'error': 'Falta el código del proyecto'}), 400
@@ -773,7 +782,7 @@ def procesar_documento():
             logger.info(f"PDF de documento no presente generado: {pdf_path}")
         
         # Actualizar CSV con la información
-        if actualizar_csv_proyecto(codigo, pdf_filename, documento_presente, observacion):
+        if actualizar_csv_proyecto(codigo, pdf_path, documento_presente, observacion, box_number):
             logger.info(f"CSV actualizado para código: {codigo}")
         else:
             logger.warning(f"No se pudo actualizar el CSV para código: {codigo}")
@@ -796,7 +805,7 @@ def procesar_documento():
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
-def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion=''):
+def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion='', box_number=''):
     """Actualiza o añade una entrada en el CSV para el proyecto."""
     try:
         csv_path = 'db_input.csv'
@@ -829,6 +838,8 @@ def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion='')
                     row['DOC_PRESENTE'] = doc_presente
                     row['OBSERVACION'] = observacion
                     row['PDF_PATH'] = pdf_path
+                    if box_number:  # Solo actualizar si se proporciona un valor
+                        row['CAJA'] = box_number
                     codigo_encontrado = True
                 rows.append(row)
         
@@ -839,6 +850,8 @@ def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion='')
             new_row['DOC_PRESENTE'] = doc_presente
             new_row['OBSERVACION'] = observacion
             new_row['PDF_PATH'] = pdf_path
+            if box_number:
+                new_row['CAJA'] = box_number
             rows.append(new_row)
         
         # Escribir todas las filas de vuelta al CSV
