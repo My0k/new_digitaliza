@@ -2,9 +2,8 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Definir los estados del flujo de trabajo
     const WORKFLOW_STATES = {
-        OCR: 1,
-        PROCESS: 2,
-        FINALIZE: 3
+        OCR: 'ocr',
+        FINALIZE: 'finalize'  // Combinamos PROCESS y FINALIZE en un solo estado
     };
     
     // Estado inicial
@@ -53,17 +52,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 executeOCR().then(function(success) {
                     if (success) {
                         // Avanzar al siguiente estado
-                        currentState = WORKFLOW_STATES.PROCESS;
-                        updateButtonState();
-                    }
-                });
-                break;
-                
-            case WORKFLOW_STATES.PROCESS:
-                // Procesar documento
-                processDocument().then(function(success) {
-                    if (success) {
-                        // Avanzar al siguiente estado
                         currentState = WORKFLOW_STATES.FINALIZE;
                         updateButtonState();
                     }
@@ -72,10 +60,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
             case WORKFLOW_STATES.FINALIZE:
                 // Finalizar procesado (generar cuadratura)
-                generateCuadratura();
-                // Reiniciar al estado inicial después de finalizar
-                currentState = WORKFLOW_STATES.OCR;
-                updateButtonState();
+                finalizeDocument();
                 break;
         }
     }
@@ -88,16 +73,13 @@ document.addEventListener('DOMContentLoaded', function() {
             case WORKFLOW_STATES.OCR:
                 workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
                 workflowButton.className = 'btn btn-primary btn-lg w-100';
-                break;
-                
-            case WORKFLOW_STATES.PROCESS:
-                workflowButton.innerHTML = '<i class="fas fa-cogs me-2"></i> Procesar Documento';
-                workflowButton.className = 'btn btn-success btn-lg w-100';
+                workflowButton.onclick = executeOCR;
                 break;
                 
             case WORKFLOW_STATES.FINALIZE:
-                workflowButton.innerHTML = '<i class="fas fa-check-circle me-2"></i> Finalizar Procesado';
-                workflowButton.className = 'btn btn-warning btn-lg w-100';
+                workflowButton.innerHTML = '<i class="fas fa-check-circle me-2"></i> Finalizar Documento';
+                workflowButton.className = 'btn btn-success btn-lg w-100';  // Cambiamos a verde (success)
+                workflowButton.onclick = finalizeDocument;
                 break;
         }
     }
@@ -189,6 +171,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 
+                // Cambiar al estado FINALIZE (saltando PROCESS)
+                currentState = WORKFLOW_STATES.FINALIZE;
+                updateButtonState();
+                
                 return true;
             } else {
                 alert('Error en OCR: ' + data.error);
@@ -209,83 +195,98 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Función para procesar documento
-    async function processDocument() {
+    // Función para finalizar el documento
+    async function finalizeDocument() {
         try {
-            // Recopilar datos del formulario
+            // Mostrar indicador de carga
+            const workflowButton = document.getElementById('workflow-button');
+            if (workflowButton) {
+                workflowButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Procesando...';
+                workflowButton.disabled = true;
+            }
+            
+            // Obtener datos del formulario
             const projectCode = document.getElementById('projectCode').value.trim();
             const boxNumber = document.getElementById('boxNumber').value.trim();
             const documentPresent = document.getElementById('documentPresent').value;
             const observation = document.getElementById('observation').value.trim();
-            
-            // Determinar el modo actual
-            const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
-            
-            // Construir la URL
-            let url = '/process_document';
-            
-            // Si estamos en modo Indexación, incluir la carpeta actual
-            if (!isDigitalizationMode) {
-                const folderSelector = document.getElementById('folderSelector');
-                if (folderSelector && folderSelector.value) {
-                    url += `?folder=${folderSelector.value}`;
-                } else {
-                    alert('Por favor, seleccione una carpeta primero');
-                    return false;
-                }
+
+            // Validar que exista un código de proyecto
+            if (!projectCode) {
+                alert('Por favor ingrese un código de proyecto');
+                workflowButton.disabled = false;
+                updateButtonState();
+                return;
             }
             
-            // Datos para enviar
+            // Obtener la carpeta actual
+            const folderSelector = document.getElementById('folderSelector');
+            const currentFolder = folderSelector ? folderSelector.value : null;
+            
+            if (!currentFolder) {
+                alert('No se pudo determinar la carpeta actual');
+                workflowButton.disabled = false;
+                updateButtonState();
+                return;
+            }
+            
+            // Crear el FormData con los datos necesarios
             const formData = new FormData();
             formData.append('projectCode', projectCode);
             formData.append('boxNumber', boxNumber);
             formData.append('documentPresent', documentPresent);
             formData.append('observation', observation);
+            formData.append('folder', currentFolder);
             
-            // Enviar solicitud
-            const response = await fetch(url, {
+            // Enviar datos al servidor para generar el PDF
+            const response = await fetch('/process_and_finalize', {
                 method: 'POST',
                 body: formData
             });
             
-            const data = await response.json();
+            const result = await response.json();
             
-            if (data.success) {
+            if (result.success) {
+                // Mostrar mensaje con la información
+                const message = `
+Documento procesado correctamente:
+--------------------------------
+Carpeta: ${currentFolder}
+Archivo: ${projectCode}.pdf
+Caja: ${boxNumber || 'No especificada'}
+Observación: ${observation || 'Ninguna'}
+Presenta documento: ${documentPresent}
+--------------------------------
+La carpeta ${currentFolder} ha sido eliminada.
+                `;
+                
+                alert(message);
+                
                 // Mostrar mensaje de éxito
-                alert('Documento procesado correctamente');
-                return true;
+                showAlert(`Documento procesado y carpeta ${currentFolder} eliminada`, 'success');
+                
+                // Reiniciar el flujo de trabajo (volver al estado OCR)
+                resetWorkflow();
+                
+                // Recargar la lista de carpetas
+                loadFolders();
             } else {
-                alert('Error al procesar documento: ' + data.error);
-                return false;
+                // Mostrar mensaje de error
+                showAlert(`Error: ${result.error || 'Error desconocido'}`, 'danger');
+                workflowButton.disabled = false;
+                updateButtonState();
             }
         } catch (error) {
-            console.error('Error procesando documento:', error);
-            alert('Error al procesar documento');
-            return false;
-        }
-    }
-    
-    // Función para generar cuadratura
-    function generateCuadratura() {
-        // Determinar el modo actual
-        const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
-        
-        // Construir la URL
-        let url = '/generate_cuadratura';
-        
-        // Si estamos en modo Indexación, incluir la carpeta actual
-        if (!isDigitalizationMode) {
-            const folderSelector = document.getElementById('folderSelector');
-            if (folderSelector && folderSelector.value) {
-                url += `?folder=${folderSelector.value}`;
-            } else {
-                alert('Por favor, seleccione una carpeta primero');
-                return;
+            console.error('Error al procesar documento:', error);
+            showAlert('Error de comunicación con el servidor', 'danger');
+            
+            // Reactivar botón
+            const workflowButton = document.getElementById('workflow-button');
+            if (workflowButton) {
+                workflowButton.disabled = false;
+                updateButtonState();
             }
         }
-        
-        // Abrir en una nueva ventana/pestaña
-        window.open(url, '_blank');
     }
     
     // Función para mostrar los resultados del OCR
@@ -911,5 +912,33 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error:', error);
             alert('Error al mover la imagen');
         });
+    }
+
+    // Función para restablecer el flujo de trabajo
+    function resetWorkflow() {
+        // Limpiar los resultados OCR
+        const ocrResults = document.getElementById('ocr-results');
+        if (ocrResults) {
+            ocrResults.style.display = 'none';
+            ocrResults.innerHTML = '';
+        }
+        
+        // Limpiar formulario
+        const projectCodeInput = document.getElementById('projectCode');
+        const boxNumberInput = document.getElementById('boxNumber');
+        const documentPresentSelect = document.getElementById('documentPresent');
+        const observationInput = document.getElementById('observation');
+        
+        if (projectCodeInput) projectCodeInput.value = '';
+        if (boxNumberInput) boxNumberInput.value = '';
+        if (documentPresentSelect) documentPresentSelect.value = 'SI';
+        if (observationInput) observationInput.value = '';
+        
+        // Volver al estado inicial
+        currentState = WORKFLOW_STATES.OCR;
+        updateButtonState();
+        
+        // Recargar las imágenes
+        refreshImages();
     }
 });
