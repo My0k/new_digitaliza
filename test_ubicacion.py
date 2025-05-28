@@ -3,6 +3,7 @@ import pyautogui
 import time
 import win32gui
 import re
+import win32con
 
 def find_window_with_title(title_pattern):
     """Encuentra ventanas que coinciden con un patrón en su título"""
@@ -39,8 +40,8 @@ class MouseCoordinatesApp:
         # Botón para activar ventana "Scan Validation"
         self.activate_button = tk.Button(
             main_frame, 
-            text="Activar ventana 'Scan Validation'",
-            command=self.activate_scan_validation_window
+            text="Activar ventana y hacer clic",
+            command=self.activate_and_click
         )
         self.activate_button.pack(pady=10)
         
@@ -51,8 +52,8 @@ class MouseCoordinatesApp:
         # Iniciar actualización de coordenadas
         self.update_coordinates()
     
-    def activate_scan_validation_window(self):
-        """Activa una ventana que contenga 'Scan Validation' en su título"""
+    def activate_and_click(self):
+        """Activa una ventana que contenga 'Scan Validation' y hace clic en coordenadas relativas"""
         windows = find_window_with_title("Scan Validation")
         
         if windows:
@@ -60,13 +61,31 @@ class MouseCoordinatesApp:
             try:
                 # Activar la ventana encontrada
                 win32gui.SetForegroundWindow(hwnd)
+                
+                # Obtener la posición y tamaño de la ventana
+                left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+                
+                # Calcular las coordenadas absolutas a partir de las relativas
+                # Añadir un pequeño retraso para asegurar que la ventana está activa
+                time.sleep(0.5)
+                
+                # Las coordenadas que queremos hacer clic (47, 61) relativas a la ventana
+                x_rel, y_rel = 47, 61
+                
+                # Convertir a coordenadas absolutas
+                x_abs = left + x_rel
+                y_abs = top + y_rel
+                
+                # Hacer clic en las coordenadas calculadas
+                pyautogui.click(x_abs, y_abs)
+                
                 self.status_label.config(
-                    text=f"Ventana activada: {title}", 
+                    text=f"Ventana activada y clic en ({x_rel}, {y_rel})", 
                     fg="green"
                 )
             except Exception as e:
                 self.status_label.config(
-                    text=f"Error al activar ventana: {str(e)}", 
+                    text=f"Error: {str(e)}", 
                     fg="red"
                 )
         else:
