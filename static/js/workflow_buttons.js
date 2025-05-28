@@ -105,21 +105,90 @@ document.addEventListener('DOMContentLoaded', function() {
     // Función para ejecutar OCR
     async function executeOCR() {
         try {
-            // Recopilar los nombres de archivos seleccionados
-            const selectedImages = Array.from(document.querySelectorAll('.image-checkbox:checked'))
-                .map(checkbox => checkbox.value);
-            
-            let url = '/ocr';
-            if (selectedImages.length === 1) {
-                url += '?filename=' + selectedImages[0];
+            // Mostrar indicador de carga
+            const workflowButton = document.getElementById('workflow-button');
+            if (workflowButton) {
+                workflowButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Procesando OCR...';
+                workflowButton.disabled = true;
             }
+            
+            // Determinar el modo actual
+            const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
+            
+            // Construir la URL para OCR
+            let url = '/ocr';
+            
+            if (isDigitalizationMode) {
+                // En modo Digitalización, verificar si hay imágenes seleccionadas
+                const selectedImages = Array.from(document.querySelectorAll('.image-checkbox:checked'))
+                    .map(checkbox => checkbox.value);
+                    
+                // Solo incluir el archivo si hay uno seleccionado
+                if (selectedImages.length === 1) {
+                    url += `?filename=${selectedImages[0]}`;
+                } else if (selectedImages.length > 1) {
+                    alert('Por favor, seleccione solo una imagen para procesar con OCR');
+                    
+                    // Restaurar botón
+                    if (workflowButton) {
+                        workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
+                        workflowButton.disabled = false;
+                    }
+                    
+                    return false;
+                }
+            } else {
+                // En modo Indexación, incluir la carpeta actual (procesará todas las imágenes)
+                const folderSelector = document.getElementById('folderSelector');
+                if (folderSelector && folderSelector.value) {
+                    url += `?folder=${folderSelector.value}`;
+                } else {
+                    alert('Por favor, seleccione una carpeta primero');
+                    
+                    // Restaurar botón
+                    if (workflowButton) {
+                        workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
+                        workflowButton.disabled = false;
+                    }
+                    
+                    return false;
+                }
+            }
+            
+            console.log("Ejecutando OCR con URL:", url);
             
             const response = await fetch(url);
             const data = await response.json();
             
+            // Restaurar botón
+            if (workflowButton) {
+                workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
+                workflowButton.disabled = false;
+            }
+            
             if (data.success) {
                 // Mostrar resultados del OCR
                 showOCRResults(data);
+                
+                // Autocompletar campos con la información extraída
+                if (data.extracted_info) {
+                    const projectCodeInput = document.getElementById('projectCode');
+                    const boxNumberInput = document.getElementById('boxNumber');
+                    const observationInput = document.getElementById('observation');
+                    
+                    if (projectCodeInput && data.extracted_info.project_code) {
+                        projectCodeInput.value = data.extracted_info.project_code;
+                    }
+                    
+                    if (boxNumberInput && data.extracted_info.box_number) {
+                        boxNumberInput.value = data.extracted_info.box_number;
+                    }
+                    
+                    if (observationInput && data.extracted_info.observation) {
+                        observationInput.value = data.extracted_info.observation;
+                    }
+                }
+                
                 return true;
             } else {
                 alert('Error en OCR: ' + data.error);
@@ -128,6 +197,14 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Error ejecutando OCR:', error);
             alert('Error al ejecutar OCR');
+            
+            // Restaurar botón
+            const workflowButton = document.getElementById('workflow-button');
+            if (workflowButton) {
+                workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
+                workflowButton.disabled = false;
+            }
+            
             return false;
         }
     }
@@ -135,45 +212,47 @@ document.addEventListener('DOMContentLoaded', function() {
     // Función para procesar documento
     async function processDocument() {
         try {
-            // Obtener datos del formulario
-            const codigo = document.getElementById('codigo').value;
-            if (!codigo) {
-                alert('Por favor ingrese el código del proyecto');
-                return false;
+            // Recopilar datos del formulario
+            const projectCode = document.getElementById('projectCode').value.trim();
+            const boxNumber = document.getElementById('boxNumber').value.trim();
+            const documentPresent = document.getElementById('documentPresent').value;
+            const observation = document.getElementById('observation').value.trim();
+            
+            // Determinar el modo actual
+            const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
+            
+            // Construir la URL
+            let url = '/process_document';
+            
+            // Si estamos en modo Indexación, incluir la carpeta actual
+            if (!isDigitalizationMode) {
+                const folderSelector = document.getElementById('folderSelector');
+                if (folderSelector && folderSelector.value) {
+                    url += `?folder=${folderSelector.value}`;
+                } else {
+                    alert('Por favor, seleccione una carpeta primero');
+                    return false;
+                }
             }
             
-            const documentoPresente = document.querySelector('input[name="documentoPresente"]:checked').value;
-            const observacion = document.getElementById('observacion').value;
-            const boxNumber = document.getElementById('boxNumber').value;
-            
-            // Recopilar los nombres de archivos seleccionados
-            const selectedImages = Array.from(document.querySelectorAll('.image-checkbox:checked'))
-                .map(checkbox => checkbox.value);
-            
-            // Preparar datos para enviar
-            const requestData = {
-                codigo: codigo,
-                documentoPresente: documentoPresente,
-                observacion: observacion,
-                selectedImages: selectedImages,
-                boxNumber: boxNumber
-            };
+            // Datos para enviar
+            const formData = new FormData();
+            formData.append('projectCode', projectCode);
+            formData.append('boxNumber', boxNumber);
+            formData.append('documentPresent', documentPresent);
+            formData.append('observation', observation);
             
             // Enviar solicitud
-            const response = await fetch('/procesar_documento', {
+            const response = await fetch(url, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestData)
+                body: formData
             });
             
             const data = await response.json();
             
             if (data.success) {
+                // Mostrar mensaje de éxito
                 alert('Documento procesado correctamente');
-                // Actualizar interfaz para reflejar que se procesó
-                refreshImages();
                 return true;
             } else {
                 alert('Error al procesar documento: ' + data.error);
@@ -188,45 +267,115 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Función para generar cuadratura
     function generateCuadratura() {
-        window.location.href = '/generar_cuadratura';
+        // Determinar el modo actual
+        const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
+        
+        // Construir la URL
+        let url = '/generate_cuadratura';
+        
+        // Si estamos en modo Indexación, incluir la carpeta actual
+        if (!isDigitalizationMode) {
+            const folderSelector = document.getElementById('folderSelector');
+            if (folderSelector && folderSelector.value) {
+                url += `?folder=${folderSelector.value}`;
+            } else {
+                alert('Por favor, seleccione una carpeta primero');
+                return;
+            }
+        }
+        
+        // Abrir en una nueva ventana/pestaña
+        window.open(url, '_blank');
     }
     
-    // Función para mostrar resultados del OCR
+    // Función para mostrar los resultados del OCR
     function showOCRResults(data) {
-        // Si hay un campo para el código, intentar llenarlo con la matrícula encontrada
-        const codigoInput = document.getElementById('codigo');
-        if (codigoInput && data.matriculas_encontradas && data.matriculas_encontradas.length > 0) {
-            codigoInput.value = data.matriculas_encontradas[0];
+        // Obtener el div donde mostraremos los resultados
+        let ocrResultsDiv = document.getElementById('ocr-results');
+        
+        // Si no existe, no podemos mostrar los resultados
+        if (!ocrResultsDiv) {
+            console.error("No se encontró el elemento para mostrar resultados OCR");
+            return;
         }
         
-        // Mostrar otros datos relevantes
-        const ocrResultsDiv = document.getElementById('ocr-results');
-        if (ocrResultsDiv) {
-            let resultsHTML = '<div class="alert alert-success">';
-            
-            if (data.matriculas_encontradas && data.matriculas_encontradas.length > 0) {
-                resultsHTML += `<p><strong>Códigos encontrados:</strong> ${data.matriculas_encontradas.join(', ')}</p>`;
-            } else {
-                resultsHTML += '<p><strong>No se encontraron códigos</strong></p>';
-            }
-            
-            if (data.student_data) {
-                Object.entries(data.student_data).forEach(([key, value]) => {
-                    if (key !== 'todas_matriculas' && value) {
-                        resultsHTML += `<p><strong>${key}:</strong> ${value}</p>`;
-                    }
-                });
-            }
-            
-            resultsHTML += '</div>';
-            ocrResultsDiv.innerHTML = resultsHTML;
-            ocrResultsDiv.style.display = 'block';
-        }
+        // Construir el HTML para los resultados
+        let html = `
+            <div class="mt-4 bg-light p-3 border rounded">
+                <h4 class="mb-3">Resultados OCR (${data.images_processed} imágenes procesadas)</h4>
+                <div class="accordion" id="ocrAccordion">`;
         
-        // Habilitar campos de entrada para el siguiente paso
-        document.querySelectorAll('.process-fields').forEach(el => {
-            el.style.display = 'block';
+        // Añadir cada resultado a un acordeón
+        data.ocr_results.forEach((result, index) => {
+            html += `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading${index}">
+                        <button class="accordion-button ${index > 0 ? 'collapsed' : ''}" type="button" 
+                                data-bs-toggle="collapse" data-bs-target="#collapse${index}" 
+                                aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="collapse${index}">
+                            <strong>${result.filename}</strong>
+                            ${result.error ? ' <span class="text-danger ms-2">(Error)</span>' : ''}
+                        </button>
+                    </h2>
+                    <div id="collapse${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                         aria-labelledby="heading${index}" data-bs-parent="#ocrAccordion">
+                        <div class="accordion-body">
+                            ${result.error ? 
+                                `<div class="alert alert-danger">${result.error}</div>` : 
+                                `<pre class="ocr-text">${result.text}</pre>`
+                            }
+                            
+                            <div class="extracted-info mt-3">
+                                <h5>Información extraída:</h5>
+                                <ul class="list-group">
+                                    <li class="list-group-item">
+                                        <strong>Código de proyecto:</strong> 
+                                        ${result.project_code ? result.project_code : '<span class="text-muted">No detectado</span>'}
+                                    </li>
+                                    <li class="list-group-item">
+                                        <strong>Número de caja:</strong> 
+                                        ${result.box_number ? result.box_number : '<span class="text-muted">No detectado</span>'}
+                                    </li>
+                                    <li class="list-group-item">
+                                        <strong>Observación:</strong> 
+                                        ${result.observation ? result.observation : '<span class="text-muted">No detectada</span>'}
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
         });
+        
+        html += `</div>`;
+        
+        // Añadir información extraída en general
+        if (data.extracted_info) {
+            html += `
+                <div class="mt-4 p-3 bg-light border rounded">
+                    <h5>Información combinada:</h5>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>Código de proyecto:</strong> 
+                            ${data.extracted_info.project_code ? data.extracted_info.project_code : '<span class="text-muted">No detectado</span>'}
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Número de caja:</strong> 
+                            ${data.extracted_info.box_number ? data.extracted_info.box_number : '<span class="text-muted">No detectado</span>'}
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Observación:</strong> 
+                            ${data.extracted_info.observation ? data.extracted_info.observation : '<span class="text-muted">No detectada</span>'}
+                        </div>
+                    </div>
+                </div>`;
+        }
+        
+        // Actualizar el contenido
+        ocrResultsDiv.innerHTML = html;
+        
+        // Mostrar el contenedor de resultados
+        ocrResultsDiv.style.display = 'block';
     }
 
     // Manejo del toggle de modo con persistencia
@@ -525,10 +674,13 @@ document.addEventListener('DOMContentLoaded', function() {
         loadFolders(this.value);
     });
 
-    // Añadir esta función para actualizar la interfaz con las imágenes
+    // Función para actualizar la interfaz con las imágenes
     function updateImagesUI(images) {
         const documentContainer = document.getElementById('documentContainer');
         if (!documentContainer) return;
+        
+        // Determinar el modo actual
+        const isDigitalizationMode = document.getElementById('mode-digitalization').checked;
         
         // Si no hay imágenes, mostrar mensaje
         if (!images || images.length === 0) {
@@ -546,6 +698,15 @@ document.addEventListener('DOMContentLoaded', function() {
         let imagesHTML = '';
         
         images.forEach(image => {
+            // Verificar si la imagen tiene datos (podría ser null)
+            const imageHtml = image.data ? 
+                `<img src="${image.data}" class="card-img-top" alt="${image.name}">` : 
+                `<div class="alert alert-danger text-center p-5">
+                    <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+                    <h5>Error al cargar imagen</h5>
+                    <p class="mb-0">${image.name}</p>
+                 </div>`;
+            
             imagesHTML += `
             <div class="col-md-6 mb-4">
                 <div class="card h-100">
@@ -559,48 +720,74 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo">
                                 <i class="fas fa-arrow-down"></i>
                             </button>
-                            <button class="btn btn-sm btn-danger delete-btn" data-filename="${image.name}" title="Eliminar">
-                                <i class="fas fa-trash"></i>
+                            <button class="btn btn-sm btn-secondary move-to-first" data-filename="${image.name}" title="Mover al inicio">
+                                <i class="fas fa-angle-double-up"></i>
                             </button>
-                            <button class="btn btn-sm btn-light rotate-left" data-filename="${image.name}" title="Rotar izquierda">
+                            <button class="btn btn-sm btn-secondary rotate-left" data-filename="${image.name}" title="Rotar izquierda">
                                 <i class="fas fa-undo"></i>
                             </button>
-                            <button class="btn btn-sm btn-light rotate-right" data-filename="${image.name}" title="Rotar derecha">
+                            <button class="btn btn-sm btn-secondary rotate-right" data-filename="${image.name}" title="Rotar derecha">
                                 <i class="fas fa-redo"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-primary move-to-first" data-filename="${image.name}">
-                                <i class="fas fa-arrow-up"></i> Primera
+                            <button class="btn btn-sm btn-danger delete-image" data-filename="${image.name}" title="Eliminar">
+                                <i class="fas fa-trash"></i>
                             </button>
                             ` : ''}
                         </div>
                     </div>
-                    <div class="card-body document-container">
-                        ${image.data ? `
-                        <img src="${image.data}" class="img-fluid document-image" alt="${image.name}">
-                        ` : `
-                        <div class="d-flex align-items-center justify-content-center h-100">
-                            <p class="text-muted">No hay imagen disponible</p>
+                    <div class="card-body d-flex flex-column">
+                        <div class="flex-grow-1 overflow-hidden">
+                            ${imageHtml}
                         </div>
-                        `}
-                    </div>
-                    <div class="card-footer text-muted">
-                        <small>Modificado: ${image.modified}</small>
+                        <div class="mt-3">
+                            ${isDigitalizationMode ? `
+                            <div class="form-check mb-2">
+                                <input class="form-check-input image-checkbox" type="checkbox" value="${image.name}" id="check-${image.name}">
+                                <label class="form-check-label" for="check-${image.name}">
+                                    Seleccionar para OCR
+                                </label>
+                            </div>
+                            ` : ''}
+                            <p class="card-text text-muted small">Modificado: ${image.modified}</p>
+                        </div>
                     </div>
                 </div>
-            </div>
-            `;
+            </div>`;
         });
         
+        // Actualizar el contenedor de documentos
         documentContainer.innerHTML = imagesHTML;
         
-        // Conectar eventos a los botones de las imágenes
+        // Conectar eventos a los botones
         connectImageButtons();
+    }
+
+    // Reordenar elementos para colocar los resultados OCR debajo de los campos de entrada
+    const formElement = document.getElementById('documentForm') || document.querySelector('form');
+    const formContainer = formElement ? formElement.closest('.card') : null;
+    
+    if (formContainer) {
+        // Buscar o crear el div de resultados OCR
+        let ocrResultsDiv = document.getElementById('ocr-results');
+        
+        if (!ocrResultsDiv) {
+            // Si no existe, crear el div
+            ocrResultsDiv = document.createElement('div');
+            ocrResultsDiv.id = 'ocr-results';
+            ocrResultsDiv.style.display = 'none';
+            
+            // Insertar después del contenedor del formulario
+            formContainer.parentNode.insertBefore(ocrResultsDiv, formContainer.nextSibling);
+        } else {
+            // Si ya existe, moverlo después del contenedor del formulario
+            formContainer.parentNode.insertBefore(ocrResultsDiv, formContainer.nextSibling);
+        }
     }
 
     // Función para conectar los eventos a los botones de las imágenes
     function connectImageButtons() {
         // Botones para eliminar imágenes
-        document.querySelectorAll('.delete-btn').forEach(button => {
+        document.querySelectorAll('.delete-image').forEach(button => {
             button.addEventListener('click', function() {
                 const filename = this.getAttribute('data-filename');
                 if (confirm(`¿Está seguro que desea eliminar la imagen ${filename}?`)) {
@@ -648,8 +835,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Estas funciones implementan las acciones de los botones
-    // Pueden estar definidas en otro archivo JS o aquí
-
     function deleteImage(filename) {
         fetch(`/delete_image?filename=${encodeURIComponent(filename)}`)
         .then(response => response.json())
@@ -727,4 +912,4 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Error al mover la imagen');
         });
     }
-}); 
+});
