@@ -323,13 +323,13 @@ def delete_image(filename):
         if os.path.exists(file_path):
             os.remove(file_path)
             logger.info(f"Archivo eliminado exitosamente: {file_path}")
-            return jsonify({'success': True}), 200
+            return jsonify({'success': True, 'message': f'Archivo {filename} eliminado correctamente'}), 200
         
         logger.warning(f"Archivo no encontrado para eliminar: {file_path}")
-        return jsonify({'error': 'Archivo no encontrado'}), 404
+        return jsonify({'error': 'Archivo no encontrado', 'path': file_path}), 404
     except Exception as e:
         logger.error(f"Error al eliminar archivo {filename}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'path': os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))}), 500
 
 @app.route('/rotate/<filename>/<direction>')
 @login_required
@@ -604,8 +604,8 @@ def ocr():
                 })
         
         # Devolver resultados del OCR y la información extraída
-            return jsonify({
-                'success': True, 
+        return jsonify({
+            'success': True, 
             'ocr_results': ocr_results,
             'extracted_info': extracted_info,
             'images_processed': len(ocr_results)
@@ -899,7 +899,7 @@ def buscar_codigo(codigo):
 @app.route('/process_and_finalize', methods=['POST'])
 @login_required
 def process_and_finalize():
-    """Procesa las imágenes, genera un PDF con OCR, actualiza el CSV y elimina la carpeta de origen."""
+    """Procesa las imágenes, genera un PDF y elimina la carpeta de origen."""
     try:
         # Obtener datos del formulario
         project_code = request.form.get('projectCode', '').strip()
@@ -952,25 +952,26 @@ def process_and_finalize():
         # Nombre del archivo PDF
         pdf_filename = f"{project_code}.pdf"
         pdf_path = os.path.join(pdf_dir, pdf_filename)
-        pdf_temp_path = os.path.join(pdf_dir, f"temp_{pdf_filename}")
         
         pdf_generated = False
         
         # Generar PDF según si el documento está presente o no
         if document_present == 'SI' and image_paths:
             try:
-                # Paso 1: Crear el PDF inicial con las imágenes
+                # Usar el método más simple y confiable posible
                 from PIL import Image
                 from reportlab.lib.pagesizes import letter
                 from reportlab.pdfgen import canvas
                 from reportlab.lib.utils import ImageReader
                 
-                c = canvas.Canvas(pdf_temp_path, pagesize=letter)
+                # Crear un PDF directamente con reportlab
+                c = canvas.Canvas(pdf_path, pagesize=letter)
                 
                 # Añadir cada imagen como una página del PDF
                 for img_path in image_paths:
                     try:
                         with Image.open(img_path) as img:
+                            # Verificar que la imagen es válida
                             img_width, img_height = img.size
                             
                             # Ajustar tamaño para que quepa en la página
@@ -985,71 +986,23 @@ def process_and_finalize():
                             
                             c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
                             c.showPage()
-                    except Exception as page_err:
-                        logger.error(f"Error al procesar página de imagen {img_path}: {str(page_err)}")
+                    except Exception as img_err:
+                        logger.error(f"Error al procesar imagen {img_path}: {str(img_err)}")
                 
-                # Guardar el PDF temporal
                 c.save()
+                pdf_generated = True
+                logger.info(f"PDF básico generado correctamente: {pdf_path}")
                 
-                # Paso 2: Aplicar OCR al PDF temporal
-                try:
-                    # Primero intentamos con ocrmypdf (requiere instalación)
-                    import subprocess
-                    
-                    # Verificar que el PDF temporal se haya creado correctamente
-                    if not os.path.exists(pdf_temp_path):
-                        raise FileNotFoundError(f"El archivo temporal {pdf_temp_path} no existe")
-                    
-                    # Intentar ejecutar ocrmypdf
-                    logger.info(f"Aplicando OCR al PDF con ocrmypdf...")
-                    ocr_cmd = [
-                        'ocrmypdf',
-                        '--deskew',              # Corregir inclinación
-                        '--clean',               # Limpiar imagen
-                        '--optimize', '3',       # Optimizar PDF (nivel 3)
-                        '--language', 'spa',     # Idioma español
-                        '--output-type', 'pdf',  # Tipo de salida
-                        pdf_temp_path,           # PDF de entrada
-                        pdf_path                 # PDF de salida
-                    ]
-                    
-                    result = subprocess.run(ocr_cmd, capture_output=True, text=True)
-                    
-                    if result.returncode != 0:
-                        logger.warning(f"ocrmypdf falló: {result.stderr}")
-                        # Si ocrmypdf falló, usamos el PDF sin OCR
-                        if os.path.exists(pdf_temp_path):
-                            shutil.copy(pdf_temp_path, pdf_path)
-                            pdf_generated = True
-                        else:
-                            raise FileNotFoundError(f"No se encontró el archivo temporal después de ocrmypdf")
-                    else:
-                        logger.info("OCR aplicado correctamente con ocrmypdf")
-                        pdf_generated = True
-                    
-                except Exception as ocr_err:
-                    logger.warning(f"Error al aplicar OCR con ocrmypdf: {str(ocr_err)}")
-                    # Si ocrmypdf no está disponible o falla, usamos el PDF sin OCR si existe
-                    if os.path.exists(pdf_temp_path):
-                        shutil.copy(pdf_temp_path, pdf_path)
-                        pdf_generated = True
-                    else:
-                        logger.error(f"No se pudo generar el PDF: {str(ocr_err)}")
+                # Opcionalmente, podemos registrar que no se aplicó OCR en esta versión
+                logger.info("PDF generado sin capa OCR")
                 
-                # Eliminar el archivo temporal solo si existe
-                if os.path.exists(pdf_temp_path):
-                    try:
-                        os.remove(pdf_temp_path)
-                    except Exception as rm_err:
-                        logger.warning(f"Error al eliminar archivo temporal: {str(rm_err)}")
-            
             except Exception as pdf_err:
-                logger.error(f"Error al generar PDF inicial: {str(pdf_err)}")
+                logger.error(f"Error al generar PDF: {str(pdf_err)}")
                 return jsonify({
                     'success': False,
                     'error': f"Error al generar PDF: {str(pdf_err)}"
                 }), 500
-                
+        
         else:
             # Si el documento no está presente, crear un PDF simple con la observación
             try:
@@ -1284,14 +1237,23 @@ def generar_carpeta():
             destination = os.path.join(folder_path, file_name)
             shutil.move(file_path, destination)
             moved_files.append(file_name)
-            
-        logger.info(f"Carpeta generada: {folder_path} con {len(moved_files)} imágenes")
+        
+        # Liberar memoria explícitamente
+        image_files = None
+        moved_files_count = len(moved_files)
+        moved_files = None
+        
+        # Forzar la recolección de basura
+        import gc
+        gc.collect()
+        
+        logger.info(f"Carpeta generada: {folder_path} con {moved_files_count} imágenes. Memoria liberada.")
         
         return jsonify({
             'success': True, 
             'folder': folder_name, 
             'path': folder_path,
-            'files_moved': len(moved_files)
+            'files_moved': moved_files_count
         }), 200
         
     except Exception as e:
@@ -1299,6 +1261,11 @@ def generar_carpeta():
         logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
+        
+        # También forzar la recolección de basura en caso de error
+        import gc
+        gc.collect()
+        
         return jsonify({'success': False, 'error': error_msg}), 500
 
 @app.route('/get_folders')

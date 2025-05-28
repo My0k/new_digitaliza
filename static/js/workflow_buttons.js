@@ -525,8 +525,45 @@ La carpeta ${currentFolder} ha sido eliminada.
                 .then(data => {
                     if (data.success) {
                         alert(`Carpeta ${data.folder} creada con éxito. Se movieron ${data.files_moved} imágenes.`);
+                        
                         // Actualizar la vista después de mover las imágenes
                         refreshImages(true);
+                        
+                        // Liberar memoria explícitamente
+                        // 1. Vaciar arreglos grandes que ya no se necesiten
+                        imageOrder = [];
+                        
+                        // 2. Eliminar referencias a objetos DOM si hay alguna almacenada
+                        const documentContainer = document.getElementById('documentContainer');
+                        if (documentContainer) {
+                            documentContainer.innerHTML = '';
+                        }
+                        
+                        // 3. Limpiar cualquier caché de imágenes que hayamos creado
+                        if (window.cachedImages) {
+                            window.cachedImages = {};
+                        }
+                        
+                        // 4. Forzar una recolección de basura si el navegador lo permite
+                        if (window.gc) {
+                            window.gc();
+                        } else if (window.opera && window.opera.collect) {
+                            window.opera.collect();
+                        } else {
+                            // En navegadores modernos, también podemos intentar
+                            // una pequeña "pista" para el recolector de basura
+                            const canvasTemp = document.createElement('canvas');
+                            for (let i = 0; i < 50; i++) {
+                                canvasTemp.width = 1000 + i;
+                                canvasTemp.height = 1000 + i;
+                                canvasTemp.getContext('2d');
+                            }
+                        }
+                        
+                        // 5. Opcional: Recargar la página completamente para un reinicio limpio
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000); // Recargar después de 1 segundo
                     } else {
                         alert('Error al crear carpeta: ' + data.error);
                     }
@@ -861,7 +898,7 @@ La carpeta ${currentFolder} ha sido eliminada.
 
     // Estas funciones implementan las acciones de los botones
     function deleteImage(filename) {
-        fetch(`/delete_image?filename=${encodeURIComponent(filename)}`)
+        fetch(`/delete/${encodeURIComponent(filename)}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
