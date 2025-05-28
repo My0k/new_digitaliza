@@ -105,16 +105,20 @@ def check_folder_changes():
     
     logger.info("Iniciando monitoreo de la carpeta input...")
     
+    # Diccionario para rastrear archivos nuevos y sus tiempos de detección
+    new_files_detected = {}
+    
     while folder_monitor_active:
         try:
             # Verificar si la carpeta existe
             if not os.path.exists(app.config['UPLOAD_FOLDER']):
                 ensure_input_folder()
                 
-            # Obtener la última modificación de la carpeta y renombrar archivos nuevos
+            # Obtener la última modificación de la carpeta y verificar archivos nuevos
             latest_mod_time = 0
-            files_to_rename = []
+            current_time = time.time()
             
+            # Verificar archivos en la carpeta
             for file in os.listdir(app.config['UPLOAD_FOLDER']):
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
                 
@@ -125,13 +129,37 @@ def check_folder_changes():
                     # Verificar si el nombre del archivo ya tiene formato de timestamp+letras
                     filename_without_ext = os.path.splitext(file)[0]
                     # Verificar si el nombre tiene al menos 13 caracteres (timestamp) y los primeros 10+ son dígitos
-                    if len(filename_without_ext) < 13 or not filename_without_ext[:-3].isdigit():
-                        files_to_rename.append(file_path)
+                    is_correct_format = len(filename_without_ext) >= 13 and filename_without_ext[:-3].isdigit()
+                    
+                    if not is_correct_format:
+                        # Si el archivo no está en el registro, añadirlo con el tiempo actual
+                        if file_path not in new_files_detected:
+                            new_files_detected[file_path] = current_time
+                            logger.info(f"Nuevo archivo detectado: {file} - esperando 20 segundos antes de renombrar")
                     
                     if mod_time > latest_mod_time:
                         latest_mod_time = mod_time
             
-            # Renombrar archivos que no tienen formato correcto
+            # Procesar los archivos que llevan más de 20 segundos detectados
+            files_to_rename = []
+            files_to_remove = []
+            
+            for file_path, detected_time in new_files_detected.items():
+                # Verificar si aún existe (podría haber sido eliminado)
+                if not os.path.exists(file_path):
+                    files_to_remove.append(file_path)
+                    continue
+                
+                # Si han pasado 20 segundos desde la detección, renombrar
+                if current_time - detected_time >= 20:
+                    files_to_rename.append(file_path)
+                    files_to_remove.append(file_path)  # Remover de la lista después de renombrar
+            
+            # Eliminar archivos que ya no existen o van a ser renombrados de la lista de seguimiento
+            for file_path in files_to_remove:
+                new_files_detected.pop(file_path, None)
+            
+            # Renombrar archivos que han esperado 20 segundos
             for file_path in files_to_rename:
                 try:
                     old_filename = os.path.basename(file_path)
@@ -140,7 +168,7 @@ def check_folder_changes():
                     
                     # Renombrar el archivo
                     os.rename(file_path, new_path)
-                    logger.info(f"Archivo renombrado automáticamente: {old_filename} -> {new_filename}")
+                    logger.info(f"Archivo renombrado después de 20 segundos: {old_filename} -> {new_filename}")
                 except Exception as e:
                     logger.error(f"Error al renombrar archivo {file_path}: {str(e)}")
             
