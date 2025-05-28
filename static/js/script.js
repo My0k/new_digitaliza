@@ -486,8 +486,13 @@ function scanDocuments() {
         });
 }
 
-// Función para procesar el documento con el código de proyecto
-function processDocument(codigo, nombreProyecto, documentoPresente, observacion) {
+// Función para procesar el documento
+function procesarDocumento(codigo, nombreProyecto, documentoPresente, observacion) {
+    const processBtn = document.getElementById('processBtn');
+    const originalText = processBtn.innerHTML;
+    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+    processBtn.disabled = true;
+    
     // Obtener todas las imágenes disponibles
     let selectedImages = [];
     document.querySelectorAll('.document-image').forEach(img => {
@@ -514,16 +519,22 @@ function processDocument(codigo, nombreProyecto, documentoPresente, observacion)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Documento procesado correctamente');
-            // Recargar la página para actualizar la vista
+            alert(`Documento procesado correctamente. PDF guardado como: ${data.pdf_filename}`);
+            // Recargar la página para actualizar la vista (la carpeta input ya estará vacía)
             window.location.reload();
         } else {
             alert('Error al procesar documento: ' + data.error);
+            // Restaurar botón
+            processBtn.innerHTML = originalText;
+            processBtn.disabled = false;
         }
     })
     .catch(error => {
         console.error('Error:', error);
         alert('Error al procesar el documento');
+        // Restaurar botón
+        processBtn.innerHTML = originalText;
+        processBtn.disabled = false;
     });
 }
 

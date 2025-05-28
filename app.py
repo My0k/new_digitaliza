@@ -687,11 +687,10 @@ def buscar_codigo(codigo):
 @app.route('/procesar_documento', methods=['POST'])
 @login_required
 def procesar_documento():
-    """Procesa el documento y actualiza el CSV."""
+    """Procesa el documento, genera PDF y actualiza CSV."""
     try:
         data = request.json
-        codigo = data.get('codigo', '')
-        nombre_proyecto = data.get('nombreProyecto', '')
+        codigo = data.get('codigo', '').strip()
         documento_presente = data.get('documentoPresente', 'SI')
         observacion = data.get('observacion', '')
         selected_images = data.get('selectedImages', [])
@@ -703,47 +702,58 @@ def procesar_documento():
         pdf_folder = 'pdf_procesado'
         os.makedirs(pdf_folder, exist_ok=True)
         
-        # Nombre del archivo PDF
-        filename = f"{codigo}.pdf"
-        pdf_path = os.path.join(pdf_folder, filename)
+        # Nombre del archivo PDF (código del proyecto)
+        pdf_filename = f"{codigo}.pdf"
+        pdf_path = os.path.join(pdf_folder, pdf_filename)
         
-        # Si no se especificaron imágenes, usar todas las disponibles
-        if not selected_images:
-            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
-        else:
-            # Usar las imágenes seleccionadas
-            image_files = [os.path.join(app.config['UPLOAD_FOLDER'], img) for img in selected_images]
+        # Obtener rutas completas de las imágenes seleccionadas
+        image_files = []
+        for img in selected_images:
+            img_path = os.path.join(app.config['UPLOAD_FOLDER'], img)
+            if os.path.exists(img_path):
+                image_files.append(img_path)
         
-        # Crear el PDF con las imágenes si el documento está presente
+        # Si documento presente = SI, verificar que hay imágenes
+        if documento_presente == 'SI' and not image_files:
+            return jsonify({'success': False, 'error': 'No hay imágenes para generar el PDF y el documento está marcado como presente'}), 400
+        
+        # Crear el PDF según si el documento está presente o no
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+        
         if documento_presente == 'SI' and image_files:
+            # Crear PDF con imágenes
             from PIL import Image
             from reportlab.lib.utils import ImageReader
             
-            # Crear un PDF con las imágenes
             c = canvas.Canvas(pdf_path, pagesize=letter)
             
-            # Añadir cada imagen como una página del PDF
             for img_path in image_files:
-                img = Image.open(img_path)
-                img_width, img_height = img.size
-                
-                # Ajustar tamaño para que quepa en la página
-                page_width, page_height = letter
-                ratio = min(page_width / img_width, page_height / img_height) * 0.9
-                new_width = img_width * ratio
-                new_height = img_height * ratio
-                
-                # Posicionar en el centro de la página
-                x = (page_width - new_width) / 2
-                y = (page_height - new_height) / 2
-                
-                c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-                c.showPage()
+                try:
+                    img = Image.open(img_path)
+                    img_width, img_height = img.size
+                    
+                    # Ajustar tamaño para que quepa en la página
+                    page_width, page_height = letter
+                    ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                    new_width = img_width * ratio
+                    new_height = img_height * ratio
+                    
+                    # Posicionar en el centro de la página
+                    x = (page_width - new_width) / 2
+                    y = (page_height - new_height) / 2
+                    
+                    c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                    c.showPage()
+                except Exception as e:
+                    logger.error(f"Error procesando imagen {img_path}: {str(e)}")
+                    # Continuar con la siguiente imagen si hay error
             
-            # Guardar el PDF
             c.save()
-        elif documento_presente == 'NO':
-            # Si el documento no está presente, crear un PDF simple con la observación
+            logger.info(f"PDF con imágenes generado: {pdf_path}")
+            
+        else:  # documento_presente == 'NO'
+            # Crear PDF simple con mensaje de documento no presente
             c = canvas.Canvas(pdf_path, pagesize=letter)
             c.setFont("Helvetica-Bold", 14)
             c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
@@ -751,6 +761,7 @@ def procesar_documento():
             if observacion:
                 c.setFont("Helvetica", 12)
                 c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
+                
                 # Dividir la observación en líneas si es muy larga
                 c.setFont("Helvetica", 10)
                 text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
@@ -759,22 +770,31 @@ def procesar_documento():
                 c.drawText(text_object)
             
             c.save()
+            logger.info(f"PDF de documento no presente generado: {pdf_path}")
         
-        # Actualizar el CSV con los nuevos datos
-        actualizar_csv_proyecto(codigo, filename, documento_presente, observacion)
+        # Actualizar CSV con la información
+        if actualizar_csv_proyecto(codigo, pdf_filename, documento_presente, observacion):
+            logger.info(f"CSV actualizado para código: {codigo}")
+        else:
+            logger.warning(f"No se pudo actualizar el CSV para código: {codigo}")
         
-        # Limpiar la carpeta input
-        limpiar_input_folder()
+        # Limpiar la carpeta de entrada
+        if limpiar_input_folder():
+            logger.info("Carpeta input limpiada correctamente")
+        else:
+            logger.warning("No se pudo limpiar la carpeta input")
         
-        logger.info(f"Documento procesado correctamente: {pdf_path}")
-        return jsonify({'success': True, 'filename': filename}), 200
-    
+        return jsonify({
+            'success': True, 
+            'pdf_filename': pdf_filename,
+            'message': 'Documento procesado correctamente'
+        })
+        
     except Exception as e:
-        error_msg = f"Error al procesar documento: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error al procesar documento: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'error': error_msg}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 def actualizar_csv_proyecto(codigo, pdf_path, doc_presente='SI', observacion=''):
     """Actualiza o añade una entrada en el CSV para el proyecto."""
