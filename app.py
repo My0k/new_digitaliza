@@ -962,7 +962,7 @@ def create_searchable_pdf(image_files, output_path, codigo):
                 img = Image.open(img_path)
                 
                 # Realizar OCR para obtener texto
-                text = pytesseract.image_to_string(img, lang='spa')
+                ocr_data = pytesseract.image_to_data(img, lang='spa', output_type=pytesseract.Output.DICT)
                 
                 # Crear PDF temporal con la imagen
                 temp_img_pdf = BytesIO()
@@ -988,25 +988,35 @@ def create_searchable_pdf(image_files, output_path, codigo):
                 temp_text_pdf = BytesIO()
                 c = canvas.Canvas(temp_text_pdf, pagesize=letter)
                 
-                # Añadir texto invisible sobre la imagen
-                c.setFont("Helvetica", 1)  # Tamaño muy pequeño para que sea invisible
-                c.setFillColorRGB(1, 1, 1, 0)  # Completamente transparente
+                # Configurar texto invisible
+                c.setFillColorRGB(0, 0, 0, 0)  # Texto totalmente transparente
                 
-                # Añadir el texto OCR como texto invisible
-                text_object = c.beginText(x, y + new_height)
-                text_object.setFont("Helvetica", 10)
-                
-                # Procesar el texto OCR línea por línea
-                for line in text.split('\n'):
-                    if line.strip():  # Ignorar líneas vacías
-                        text_object.textLine(line)
+                # Recorrer los resultados del OCR y colocar cada palabra en su posición
+                for i in range(len(ocr_data['text'])):
+                    text = ocr_data['text'][i].strip()
+                    
+                    if text and ocr_data['conf'][i] > 30:  # Solo texto con cierta confianza
+                        # Calcular posición ajustada
+                        orig_x = ocr_data['left'][i]
+                        orig_y = ocr_data['top'][i]
+                        
+                        # Convertir a coordenadas de la página PDF
+                        pdf_x = x + (orig_x * ratio)
+                        # Invertir el eje Y ya que en PDF el origen está abajo
+                        pdf_y = page_height - (y + (orig_y * ratio))
+                        
+                        # Ajustar por la altura del texto
+                        pdf_y -= (ocr_data['height'][i] * ratio)
+                        
+                        # Dibujar el texto en su posición correspondiente
+                        c.setFont("Helvetica", 10)
+                        c.drawString(pdf_x, pdf_y, text)
                 
                 # Añadir código de proyecto como texto visible
-                c.setFont("Helvetica", 8)
                 c.setFillColorRGB(0, 0, 0, 1)  # Negro normal
+                c.setFont("Helvetica", 8)
                 c.drawString(20, 20, f"Código: {codigo}")
                 
-                c.drawText(text_object)
                 c.save()
                 
                 # Combinar ambos PDFs
