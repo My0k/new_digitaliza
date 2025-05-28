@@ -896,23 +896,34 @@ def buscar_codigo(codigo):
         logger.error(error_msg)
         return jsonify({'success': False, 'error': error_msg}), 500
 
-@app.route('/process_document', methods=['POST'])
+@app.route('/process_and_finalize', methods=['POST'])
 @login_required
-def process_document():
-    """Procesa un documento indexado."""
+def process_and_finalize():
+    """Procesa las imágenes, genera un PDF con OCR y elimina la carpeta de origen."""
     try:
-        # Determinar si estamos en modo Indexación o Digitalización
-        folder_id = request.args.get('folder', None)
+        # Obtener datos del formulario
+        project_code = request.form.get('projectCode', '').strip()
+        box_number = request.form.get('boxNumber', '').strip()
+        document_present = request.form.get('documentPresent', 'SI')
+        observation = request.form.get('observation', '').strip()
+        folder_id = request.form.get('folder', '').strip()
+        
+        # Validar datos
+        if not project_code:
+            return jsonify({
+                'success': False,
+                'error': "Se requiere un código de proyecto"
+            }), 400
+            
+        if not folder_id:
+            return jsonify({
+                'success': False,
+                'error': "Se requiere especificar una carpeta"
+            }), 400
         
         # Determinar el directorio de las imágenes
-        if folder_id:
-            # Modo Indexación - usar carpeta numerada
-            base_dir = os.path.join('carpetas', folder_id)
-            logger.info(f"Procesando documento en modo Indexación, carpeta: {folder_id}")
-        else:
-            # Modo Digitalización - usar carpeta input
-            base_dir = app.config['UPLOAD_FOLDER']
-            logger.info("Procesando documento en modo Digitalización")
+        base_dir = os.path.join('carpetas', folder_id)
+        logger.info(f"Procesando carpeta: {folder_id}")
         
         # Verificar que el directorio existe
         if not os.path.exists(base_dir):
@@ -920,20 +931,147 @@ def process_document():
                 'success': False,
                 'error': f"El directorio {base_dir} no existe"
             }), 400
-            
-        # Obtener datos del formulario
-        project_code = request.form.get('projectCode', '')
-        box_number = request.form.get('boxNumber', '')
-        document_present = request.form.get('documentPresent', 'SI')
-        observation = request.form.get('observation', '')
         
-        # Aquí iría el código para procesar el documento
-        # Por ahora simplemente simularemos un resultado exitoso
+        # Obtener las imágenes ordenadas
+        image_paths = glob.glob(os.path.join(base_dir, '*.jpg')) + glob.glob(os.path.join(base_dir, '*.jpeg'))
+        
+        # Si no hay imágenes, devolver error
+        if not image_paths and document_present == 'SI':
+            return jsonify({
+                'success': False,
+                'error': "No hay imágenes para procesar y el documento está marcado como presente"
+            }), 400
+        
+        # Ordenar imágenes por fecha de modificación (más antiguas primero)
+        image_paths.sort(key=os.path.getmtime)
+        
+        # Crear directorio para PDFs si no existe
+        pdf_dir = 'pdf_procesado'
+        os.makedirs(pdf_dir, exist_ok=True)
+        
+        # Nombre del archivo PDF
+        pdf_filename = f"{project_code}.pdf"
+        pdf_path = os.path.join(pdf_dir, pdf_filename)
+        pdf_temp_path = os.path.join(pdf_dir, f"temp_{pdf_filename}")
+        
+        # Generar PDF según si el documento está presente o no
+        if document_present == 'SI' and image_paths:
+            # Paso 1: Crear el PDF inicial con las imágenes
+            from PIL import Image
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.utils import ImageReader
+            
+            c = canvas.Canvas(pdf_temp_path, pagesize=letter)
+            
+            # Añadir cada imagen como una página del PDF
+            for img_path in image_paths:
+                try:
+                    with Image.open(img_path) as img:
+                        img_width, img_height = img.size
+                        
+                        # Ajustar tamaño para que quepa en la página
+                        page_width, page_height = letter
+                        ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                        new_width = img_width * ratio
+                        new_height = img_height * ratio
+                        
+                        # Posicionar en el centro de la página
+                        x = (page_width - new_width) / 2
+                        y = (page_height - new_height) / 2
+                        
+                        c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                        c.showPage()
+                except Exception as page_err:
+                    logger.error(f"Error al procesar página de imagen {img_path}: {str(page_err)}")
+            
+            # Guardar el PDF temporal
+            c.save()
+            
+            # Paso 2: Aplicar OCR al PDF temporal
+            try:
+                # Primero intentamos con ocrmypdf (requiere instalación)
+                import subprocess
+                
+                # Intentar ejecutar ocrmypdf
+                logger.info(f"Aplicando OCR al PDF con ocrmypdf...")
+                ocr_cmd = [
+                    'ocrmypdf',
+                    '--deskew',              # Corregir inclinación
+                    '--clean',               # Limpiar imagen
+                    '--optimize', '3',       # Optimizar PDF (nivel 3)
+                    '--language', 'spa',     # Idioma español
+                    '--output-type', 'pdf',  # Tipo de salida
+                    pdf_temp_path,           # PDF de entrada
+                    pdf_path                 # PDF de salida
+                ]
+                
+                result = subprocess.run(ocr_cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    logger.warning(f"ocrmypdf falló: {result.stderr}")
+                    # Si ocrmypdf falló, usamos el PDF sin OCR
+                    shutil.copy(pdf_temp_path, pdf_path)
+                else:
+                    logger.info("OCR aplicado correctamente con ocrmypdf")
+                
+            except Exception as ocr_err:
+                logger.warning(f"Error al aplicar OCR con ocrmypdf: {str(ocr_err)}")
+                # Si ocrmypdf no está disponible o falla, usamos el PDF sin OCR
+                shutil.copy(pdf_temp_path, pdf_path)
+            
+            # Eliminar el archivo temporal
+            try:
+                os.remove(pdf_temp_path)
+            except:
+                pass
+            
+        else:
+            # Si el documento no está presente, crear un PDF simple con la observación
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
+            
+            if observation:
+                c.setFont("Helvetica", 12)
+                c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
+                # Dividir la observación en líneas si es muy larga
+                c.setFont("Helvetica", 10)
+                text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
+                for line in observation.split('\n'):
+                    text_object.textLine(line)
+                c.drawText(text_object)
+                
+            if box_number:
+                c.setFont("Helvetica", 12)
+                c.drawCentredString(letter[0]/2, letter[1]/2 - 80, f"Caja: {box_number}")
+            
+            c.save()
+        
+        # Eliminar la carpeta después de procesarla
+        try:
+            shutil.rmtree(base_dir)
+            logger.info(f"Carpeta eliminada: {base_dir}")
+        except Exception as rm_err:
+            logger.error(f"Error al eliminar carpeta {base_dir}: {str(rm_err)}")
+            return jsonify({
+                'success': False,
+                'error': f"Se generó el PDF pero no se pudo eliminar la carpeta: {str(rm_err)}"
+            }), 500
         
         return jsonify({
-            'success': True, 
-            'message': 'Documento procesado correctamente'
+            'success': True,
+            'filename': pdf_filename,
+            'folder': folder_id,
+            'path': pdf_path,
+            'document_present': document_present,
+            'box_number': box_number,
+            'observation': observation
         })
+        
     except Exception as e:
         error_msg = f"Error al procesar documento: {str(e)}"
         logger.error(error_msg)
@@ -1147,149 +1285,6 @@ def get_folders():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'error': error_msg}), 500
-
-@app.route('/process_and_finalize', methods=['POST'])
-@login_required
-def process_and_finalize():
-    """Procesa las imágenes, genera un PDF y elimina la carpeta de origen."""
-    try:
-        # Obtener datos del formulario
-        project_code = request.form.get('projectCode', '').strip()
-        box_number = request.form.get('boxNumber', '').strip()
-        document_present = request.form.get('documentPresent', 'SI')
-        observation = request.form.get('observation', '').strip()
-        folder_id = request.form.get('folder', '').strip()
-        
-        # Validar datos
-        if not project_code:
-            return jsonify({
-                'success': False,
-                'error': "Se requiere un código de proyecto"
-            }), 400
-            
-        if not folder_id:
-            return jsonify({
-                'success': False,
-                'error': "Se requiere especificar una carpeta"
-            }), 400
-        
-        # Determinar el directorio de las imágenes
-        base_dir = os.path.join('carpetas', folder_id)
-        logger.info(f"Procesando carpeta: {folder_id}")
-        
-        # Verificar que el directorio existe
-        if not os.path.exists(base_dir):
-            return jsonify({
-                'success': False,
-                'error': f"El directorio {base_dir} no existe"
-            }), 400
-        
-        # Obtener las imágenes ordenadas
-        image_paths = glob.glob(os.path.join(base_dir, '*.jpg')) + glob.glob(os.path.join(base_dir, '*.jpeg'))
-        
-        # Si no hay imágenes, devolver error
-        if not image_paths and document_present == 'SI':
-            return jsonify({
-                'success': False,
-                'error': "No hay imágenes para procesar y el documento está marcado como presente"
-            }), 400
-        
-        # Ordenar imágenes por fecha de modificación (más antiguas primero)
-        image_paths.sort(key=os.path.getmtime)
-        
-        # Crear directorio para PDFs si no existe
-        pdf_dir = 'pdf_procesado'
-        os.makedirs(pdf_dir, exist_ok=True)
-        
-        # Nombre del archivo PDF
-        pdf_filename = f"{project_code}.pdf"
-        pdf_path = os.path.join(pdf_dir, pdf_filename)
-        
-        # Generar PDF según si el documento está presente o no
-        if document_present == 'SI' and image_paths:
-            # Crear el PDF con las imágenes
-            from PIL import Image
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.utils import ImageReader
-            
-            c = canvas.Canvas(pdf_path, pagesize=letter)
-            
-            # Añadir cada imagen como una página del PDF
-            for img_path in image_paths:
-                try:
-                    with Image.open(img_path) as img:
-                        img_width, img_height = img.size
-                        
-                        # Ajustar tamaño para que quepa en la página
-                        page_width, page_height = letter
-                        ratio = min(page_width / img_width, page_height / img_height) * 0.9
-                        new_width = img_width * ratio
-                        new_height = img_height * ratio
-                        
-                        # Posicionar en el centro de la página
-                        x = (page_width - new_width) / 2
-                        y = (page_height - new_height) / 2
-                        
-                        c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-                        c.showPage()
-                except Exception as page_err:
-                    logger.error(f"Error al procesar página de imagen {img_path}: {str(page_err)}")
-            
-            # Guardar el PDF
-            c.save()
-        else:
-            # Si el documento no está presente, crear un PDF simple con la observación
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            
-            c = canvas.Canvas(pdf_path, pagesize=letter)
-            c.setFont("Helvetica-Bold", 14)
-            c.drawCentredString(letter[0]/2, letter[1]/2 + 40, "DOCUMENTO NO PRESENTE")
-            
-            if observation:
-                c.setFont("Helvetica", 12)
-                c.drawCentredString(letter[0]/2, letter[1]/2, "Observación:")
-                # Dividir la observación en líneas si es muy larga
-                c.setFont("Helvetica", 10)
-                text_object = c.beginText(letter[0]/4, letter[1]/2 - 20)
-                for line in observation.split('\n'):
-                    text_object.textLine(line)
-                c.drawText(text_object)
-                
-            if box_number:
-                c.setFont("Helvetica", 12)
-                c.drawCentredString(letter[0]/2, letter[1]/2 - 80, f"Caja: {box_number}")
-            
-            c.save()
-        
-        # Eliminar la carpeta después de procesarla
-        try:
-            shutil.rmtree(base_dir)
-            logger.info(f"Carpeta eliminada: {base_dir}")
-        except Exception as rm_err:
-            logger.error(f"Error al eliminar carpeta {base_dir}: {str(rm_err)}")
-            return jsonify({
-                'success': False,
-                'error': f"Se generó el PDF pero no se pudo eliminar la carpeta: {str(rm_err)}"
-            }), 500
-        
-        return jsonify({
-            'success': True,
-            'filename': pdf_filename,
-            'folder': folder_id,
-            'path': pdf_path,
-            'document_present': document_present,
-            'box_number': box_number,
-            'observation': observation
-        })
-        
-    except Exception as e:
-        error_msg = f"Error al procesar documento: {str(e)}"
-        logger.error(error_msg)
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'error': error_msg}), 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
