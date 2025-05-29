@@ -1002,4 +1002,63 @@ La carpeta ${currentFolder} ha sido eliminada.
         // Recargar las imágenes
         refreshImages();
     }
+
+    // Buscar el botón de actualizar (puede tener diferentes IDs según la página)
+    const refreshButton = document.getElementById('refreshBtn') || 
+                           document.querySelector('.refresh-btn') ||
+                           document.querySelector('button[data-action="refresh"]');
+    
+    if (refreshButton) {
+        // Sobrescribir cualquier manejador de eventos existente
+        refreshButton.replaceWith(refreshButton.cloneNode(true));
+        
+        // Obtener la referencia actualizada del botón
+        const newRefreshButton = document.getElementById('refreshBtn') || 
+                                 document.querySelector('.refresh-btn') ||
+                                 document.querySelector('button[data-action="refresh"]');
+        
+        // Añadir nuevo manejador de evento que recargue la página
+        newRefreshButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Opcional: añadir un indicador visual de que se está recargando
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Actualizando...';
+            this.disabled = true;
+            
+            // Liberar memoria antes de recargar
+            clearMemoryBeforeReload();
+            
+            // Recargar la página
+            setTimeout(function() {
+                window.location.reload(true); // true para forzar recarga desde el servidor
+            }, 300); // pequeño retraso para mostrar el spinner
+        });
+        
+        console.log('Configurado botón de actualización para recargar página completa');
+    }
+    
+    // Función para limpiar memoria antes de recargar
+    function clearMemoryBeforeReload() {
+        // Vaciar arreglos grandes
+        if (window.imageOrder) window.imageOrder = [];
+        
+        // Limpiar elementos DOM innecesarios
+        const documentContainer = document.getElementById('documentContainer');
+        if (documentContainer) documentContainer.innerHTML = '';
+        
+        // Eliminar referencias a objetos grandes
+        if (window.cachedImages) window.cachedImages = {};
+        
+        // Forzar recolección de basura si es posible
+        if (window.gc) window.gc();
+        
+        // En todos los navegadores, esta técnica puede ayudar a liberar memoria
+        const tempCanvas = document.createElement('canvas');
+        for (let i = 0; i < 20; i++) {
+            tempCanvas.width = 1000 + i;
+            tempCanvas.height = 1000 + i;
+            const ctx = tempCanvas.getContext('2d');
+            ctx.fillRect(0, 0, 1, 1);
+        }
+    }
 });
