@@ -65,7 +65,7 @@ def get_latest_images(folder='input', count=None):
 
 def get_image_data(image_path, thumbnail=True, max_size=800):
     """Obtiene los datos de una imagen para enviar al frontend.
-    Si thumbnail es True, genera una versión comprimida de la imagen."""
+    Si thumbnail es True, genera una versión comprimida de la imagen y la guarda en disco."""
     try:
         name = os.path.basename(image_path)
         modified_time = os.path.getmtime(image_path)
@@ -74,29 +74,43 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
         # Codificar la imagen en base64 para enviarla, opcionalmente generando thumbnail
         try:
             if thumbnail:
-                # Crear una versión comprimida de la imagen
-                with Image.open(image_path) as img:
-                    # Conservar la proporción de aspecto pero limitar tamaño máximo
-                    img.thumbnail((max_size, max_size), Image.LANCZOS)
-                    
-                    # Convertir a RGB si es necesario (en caso de imágenes RGBA)
-                    if img.mode in ('RGBA', 'LA'):
-                        background = Image.new(img.mode[:-1], img.size, (255, 255, 255))
-                        background.paste(img, img.split()[-1])
-                        img = background
-                    
-                    # Guardar la imagen comprimida en un buffer en memoria
-                    buffer = BytesIO()
-                    img.save(buffer, format="JPEG", quality=70, optimize=True)
-                    buffer.seek(0)
-                    
-                    # Codificar en base64
-                    encoded_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                # Definir carpeta de miniaturas y asegurar que existe
+                thumbnails_folder = 'miniaturas'
+                os.makedirs(thumbnails_folder, exist_ok=True)
+                
+                # Crear nombre para la miniatura (mismo nombre con prefijo 'thumb_')
+                thumb_name = f"thumb_{name}"
+                thumb_path = os.path.join(thumbnails_folder, thumb_name)
+                
+                # Verificar si la miniatura ya existe y es más reciente que la imagen original
+                thumb_exists = os.path.exists(thumb_path)
+                
+                if thumb_exists:
+                    thumb_modified_time = os.path.getmtime(thumb_path)
+                    # Si la imagen original es más reciente que la miniatura, recrearla
+                    if modified_time > thumb_modified_time:
+                        thumb_exists = False
+                
+                # Si la miniatura no existe o debe ser actualizada, crearla
+                if not thumb_exists:
+                    with Image.open(image_path) as img:
+                        # Conservar la proporción de aspecto pero limitar tamaño máximo
+                        img.thumbnail((max_size, max_size), Image.LANCZOS)
+                        
+                        # Convertir a RGB si es necesario (en caso de imágenes RGBA)
+                        if img.mode in ('RGBA', 'LA'):
+                            background = Image.new(img.mode[:-1], img.size, (255, 255, 255))
+                            background.paste(img, img.split()[-1])
+                            img = background
+                        
+                        # Guardar la miniatura en disco
+                        img.save(thumb_path, format="JPEG", quality=70, optimize=True)
+                        logger.info(f"Miniatura creada: {thumb_path}")
+                
+                # Leer la miniatura desde el disco y codificarla
+                with open(thumb_path, "rb") as img_file:
+                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
                     data_url = f"data:image/jpeg;base64,{encoded_string}"
-                    
-                    # Liberar memoria
-                    buffer.close()
-                    del img
             else:
                 # Usar la imagen original
                 with open(image_path, "rb") as img_file:
@@ -115,7 +129,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
             'path': image_path,
             'data': data_url,
             'modified': modified,
-            'is_thumbnail': thumbnail
+            'is_thumbnail': thumbnail,
+            'thumb_path': thumb_path if thumbnail and 'thumb_path' in locals() else None
         }
     except Exception as e:
         logger.error(f"Error al procesar imagen {image_path}: {str(e)}")
