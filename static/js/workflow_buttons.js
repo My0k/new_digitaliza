@@ -406,8 +406,9 @@ La carpeta ${currentFolder} ha sido eliminada.
     // Manejo del toggle de modo con persistencia
     const modeDigitalization = document.getElementById('mode-digitalization');
     const modeIndexation = document.getElementById('mode-indexation');
+    const modeProcess = document.getElementById('mode-process');
 
-    if (modeDigitalization && modeIndexation) {
+    if (modeDigitalization && modeIndexation && modeProcess) {
         // Recuperar el modo guardado (o usar 'indexation' como predeterminado)
         const savedMode = localStorage.getItem('viewMode') || 'indexation';
         
@@ -447,6 +448,20 @@ La carpeta ${currentFolder} ha sido eliminada.
             refreshImages(true);
             
             console.log('Modo Digitalización activado (restaurado)');
+        } else if (savedMode === 'process') {
+            modeProcess.checked = true;
+            // Aplicar la configuración del modo procesado
+            document.querySelector('.navbar').className = 'navbar navbar-expand-lg navbar-dark bg-dark mode-process';
+            
+            // Mostrar/ocultar controles correspondientes
+            document.getElementById('digitalizationControls').style.display = 'none';
+            document.getElementById('indexationControls').style.display = 'none';
+            document.getElementById('processControls').style.display = 'block';
+            
+            // Cargar PDFs
+            loadPDFs();
+            
+            console.log('Modo Procesado activado (restaurado)');
         } else {
             modeIndexation.checked = true;
             // Aplicar la configuración del modo indexación
@@ -487,6 +502,16 @@ La carpeta ${currentFolder} ha sido eliminada.
             if (this.checked) {
                 // Guardar el modo en localStorage
                 localStorage.setItem('viewMode', 'indexation');
+                
+                // Recargar la página para aplicar completamente el nuevo modo
+                window.location.reload();
+            }
+        });
+        
+        modeProcess.addEventListener('change', function() {
+            if (this.checked) {
+                // Guardar el modo en localStorage
+                localStorage.setItem('viewMode', 'process');
                 
                 // Recargar la página para aplicar completamente el nuevo modo
                 window.location.reload();
@@ -1060,5 +1085,89 @@ La carpeta ${currentFolder} ha sido eliminada.
             const ctx = tempCanvas.getContext('2d');
             ctx.fillRect(0, 0, 1, 1);
         }
+    }
+
+    // Función para cargar PDFs
+    function loadPDFs() {
+        // Mostrar indicador de carga
+        documentContainer.innerHTML = '<div class="col-12 text-center py-5"><i class="fas fa-spinner fa-spin fa-3x"></i><p class="mt-3">Cargando documentos PDF...</p></div>';
+        
+        fetch('/list_pdfs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    documentContainer.innerHTML = `<div class="col-12 alert alert-danger">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                if (data.length === 0) {
+                    documentContainer.innerHTML = '<div class="col-12 text-center py-5"><i class="fas fa-folder-open fa-3x text-muted"></i><p class="mt-3">No hay documentos PDF para procesar</p></div>';
+                    return;
+                }
+                
+                // Construir la vista de PDFs
+                let html = '';
+                data.forEach(pdf => {
+                    html += `
+                    <div class="col-md-6 mb-4">
+                        <div class="card h-100">
+                            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">${pdf.name}</h5>
+                                <div class="document-tools">
+                                    <button class="btn btn-sm btn-danger delete-pdf" data-filename="${pdf.name}" title="Eliminar">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-flex flex-column align-items-center justify-content-center py-4">
+                                    <i class="fas fa-file-pdf fa-5x text-danger mb-3"></i>
+                                    <p class="text-center">
+                                        Tamaño: ${pdf.size}<br>
+                                        <button class="btn btn-sm btn-primary mt-2 preview-pdf" data-filename="${pdf.name}">
+                                            <i class="fas fa-eye me-1"></i> Previsualizar
+                                        </button>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="card-footer text-muted">
+                                <small>Modificado: ${pdf.modified}</small>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+                
+                documentContainer.innerHTML = html;
+                
+                // Conectar eventos para botones
+                connectPDFButtons();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                documentContainer.innerHTML = '<div class="col-12 alert alert-danger">Error al cargar documentos PDF</div>';
+            });
+    }
+    
+    // Conectar eventos a los botones de PDFs
+    function connectPDFButtons() {
+        // Previsualizar PDF
+        document.querySelectorAll('.preview-pdf').forEach(button => {
+            button.addEventListener('click', function() {
+                const filename = this.getAttribute('data-filename');
+                // Abrir en nueva ventana
+                window.open(`/por_procesar/${filename}`, '_blank');
+            });
+        });
+        
+        // Eliminar PDF
+        document.querySelectorAll('.delete-pdf').forEach(button => {
+            button.addEventListener('click', function() {
+                const filename = this.getAttribute('data-filename');
+                if (confirm(`¿Está seguro que desea eliminar el PDF ${filename}?`)) {
+                    alert('Función de eliminación en desarrollo');
+                    // Aquí se implementaría la llamada al backend para eliminar
+                }
+            });
+        });
     }
 });

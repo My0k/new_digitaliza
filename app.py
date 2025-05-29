@@ -1422,6 +1422,56 @@ def get_folders():
         logger.error(traceback.format_exc())
         return jsonify({'error': error_msg}), 500
 
+@app.route('/list_pdfs')
+@login_required
+def list_pdfs():
+    """Obtiene la lista de archivos PDF en la carpeta por_procesar."""
+    try:
+        # Asegurar que la carpeta existe
+        pdf_folder = 'por_procesar'
+        os.makedirs(pdf_folder, exist_ok=True)
+        
+        # Buscar archivos PDF
+        pdf_files = glob.glob(os.path.join(pdf_folder, '*.pdf'))
+        
+        # Información de cada PDF
+        pdf_data = []
+        for pdf_path in pdf_files:
+            name = os.path.basename(pdf_path)
+            modified_time = os.path.getmtime(pdf_path)
+            modified = datetime.fromtimestamp(modified_time).strftime('%d/%m/%Y %H:%M:%S')
+            size = os.path.getsize(pdf_path)
+            size_formatted = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / (1024 * 1024):.1f} MB"
+            
+            pdf_data.append({
+                'name': name,
+                'path': pdf_path,
+                'modified': modified,
+                'size': size_formatted
+            })
+        
+        # Ordenar por fecha de modificación (más reciente primero)
+        pdf_data.sort(key=lambda x: os.path.getmtime(x['path']), reverse=True)
+        
+        return jsonify(pdf_data)
+    except Exception as e:
+        error_msg = f"Error al listar PDFs: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'error': error_msg}), 500
+
+@app.route('/por_procesar/<filename>')
+@login_required
+def serve_pdf(filename):
+    """Sirve un archivo PDF desde la carpeta por_procesar."""
+    try:
+        pdf_folder = 'por_procesar'
+        return send_file(os.path.join(pdf_folder, secure_filename(filename)))
+    except Exception as e:
+        logger.error(f"Error al servir PDF {filename}: {str(e)}")
+        return "Error al servir el archivo PDF", 500
+
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
     os.makedirs('templates', exist_ok=True)
