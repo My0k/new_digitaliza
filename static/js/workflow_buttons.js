@@ -46,22 +46,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Función para manejar el clic en el botón de flujo de trabajo
     function handleWorkflowButtonClick() {
-        switch (currentState) {
-            case WORKFLOW_STATES.OCR:
-                // Ejecutar OCR
-                executeOCR().then(function(success) {
-                    if (success) {
-                        // Avanzar al siguiente estado
-                        currentState = WORKFLOW_STATES.FINALIZE;
-                        updateButtonState();
-                    }
-                });
-                break;
-                
-            case WORKFLOW_STATES.FINALIZE:
-                // Finalizar procesado (generar cuadratura)
-                finalizeDocument();
-                break;
+        // Determinar modo actual
+        const isIndexationMode = document.getElementById('mode-indexation').checked;
+        
+        if (isIndexationMode) {
+            // En modo indexación, generamos un PDF indexado sin OCR
+            generarPDFIndexado();
+        } else {
+            // En otro modo, usamos la función original de OCR
+            ejecutarOCR();
         }
     }
     
@@ -73,7 +66,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case WORKFLOW_STATES.OCR:
                 workflowButton.innerHTML = '<i class="fas fa-file-alt me-2"></i> Ejecutar OCR';
                 workflowButton.className = 'btn btn-primary btn-lg w-100';
-                workflowButton.onclick = executeOCR;
+                workflowButton.onclick = ejecutarOCR;
                 break;
                 
             case WORKFLOW_STATES.FINALIZE:
@@ -85,7 +78,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Función para ejecutar OCR
-    async function executeOCR() {
+    async function ejecutarOCR() {
         try {
             // Mostrar indicador de carga
             const workflowButton = document.getElementById('workflow-button');
@@ -263,7 +256,7 @@ La carpeta ${currentFolder} ha sido eliminada.
                 alert(message);
                 
                 // Mostrar mensaje de éxito
-                showAlert(`Documento procesado y carpeta ${currentFolder} eliminada`, 'success');
+                showToast(`Documento procesado y carpeta ${currentFolder} eliminada`, 'success');
                 
                 // Reiniciar el flujo de trabajo (volver al estado OCR)
                 resetWorkflow();
@@ -281,13 +274,13 @@ La carpeta ${currentFolder} ha sido eliminada.
                 
             } else {
                 // Mostrar mensaje de error
-                showAlert(`Error: ${result.error || 'Error desconocido'}`, 'danger');
+                showToast(`Error: ${result.error || 'Error desconocido'}`, 'error');
                 workflowButton.disabled = false;
                 updateButtonState();
             }
         } catch (error) {
             console.error('Error al procesar documento:', error);
-            showAlert('Error de comunicación con el servidor', 'danger');
+            showToast('Error de comunicación con el servidor', 'error');
             
             // Reactivar botón
             const workflowButton = document.getElementById('workflow-button');
@@ -1169,5 +1162,118 @@ La carpeta ${currentFolder} ha sido eliminada.
                 }
             });
         });
+    }
+
+    // Función para generar PDF indexado
+    function generarPDFIndexado() {
+        // Obtener datos del formulario
+        const projectCode = document.getElementById('projectCode').value.trim();
+        const boxNumber = document.getElementById('boxNumber').value.trim();
+        const documentPresent = document.getElementById('documentPresent').value;
+        const observation = document.getElementById('observation').value.trim();
+        
+        // Obtener carpeta actual
+        const folderSelector = document.getElementById('folderSelector');
+        const currentFolder = folderSelector ? folderSelector.value : null;
+        
+        if (!currentFolder) {
+            alert('No hay una carpeta seleccionada');
+            return;
+        }
+        
+        // Cambiar apariencia del botón
+        const button = document.getElementById('workflow-button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Procesando...';
+        
+        // Enviar solicitud al servidor
+        fetch('/generar_pdf_indexado', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                folder_id: currentFolder,
+                project_code: projectCode,
+                box_number: boxNumber,
+                document_present: documentPresent,
+                observation: observation
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Mostrar mensaje de éxito
+                showToast('Documento indexado correctamente', 'success');
+                
+                // Limpiar formulario
+                document.getElementById('projectCode').value = '';
+                document.getElementById('boxNumber').value = '';
+                document.getElementById('documentPresent').value = 'SI';
+                document.getElementById('observation').value = '';
+                
+                // Opcional: mostrar notificación con detalles
+                showToast(`PDF generado: ${data.pdf_filename}`, 'info');
+            } else {
+                showToast(`Error: ${data.error}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('Error al procesar la solicitud', 'error');
+        })
+        .finally(() => {
+            // Restaurar botón
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    }
+
+    // Función para mostrar notificaciones
+    function showToast(message, type = 'info') {
+        // Crear elemento toast si no existe
+        if (!document.getElementById('toast-container')) {
+            const toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.style.position = 'fixed';
+            toastContainer.style.top = '20px';
+            toastContainer.style.right = '20px';
+            toastContainer.style.zIndex = '9999';
+            document.body.appendChild(toastContainer);
+        }
+        
+        // Crear toast
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = message;
+        toast.style.marginBottom = '10px';
+        toast.style.padding = '10px 15px';
+        toast.style.borderRadius = '4px';
+        toast.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+        
+        // Estilos según tipo
+        if (type === 'success') {
+            toast.style.backgroundColor = '#d4edda';
+            toast.style.color = '#155724';
+        } else if (type === 'error') {
+            toast.style.backgroundColor = '#f8d7da';
+            toast.style.color = '#721c24';
+        } else {
+            toast.style.backgroundColor = '#cce5ff';
+            toast.style.color = '#004085';
+        }
+        
+        // Añadir al contenedor
+        document.getElementById('toast-container').appendChild(toast);
+        
+        // Auto-eliminar después de 3 segundos
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                toast.remove();
+            }, 500);
+        }, 3000);
     }
 });

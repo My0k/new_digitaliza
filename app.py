@@ -1487,6 +1487,111 @@ def serve_pdf(filename):
         logger.error(f"Error al servir PDF {filename}: {str(e)}")
         return "Error al servir el archivo PDF", 500
 
+@app.route('/generar_pdf_indexado', methods=['POST'])
+@login_required
+def generar_pdf_indexado():
+    """Genera un PDF a partir de las imágenes indexadas y lo guarda en la carpeta 'por_procesar'."""
+    try:
+        # Obtener datos del formulario
+        data = request.json
+        folder_id = data.get('folder_id')
+        project_code = data.get('project_code')
+        box_number = data.get('box_number')
+        document_present = data.get('document_present', 'SI')
+        observation = data.get('observation', '')
+        
+        if not folder_id:
+            return jsonify({'success': False, 'error': 'No se especificó una carpeta'}), 400
+        
+        # Validar código de proyecto (opcional)
+        if project_code and not (len(project_code) >= 6 and project_code.startswith('23')):
+            return jsonify({'success': False, 'error': 'Código de proyecto inválido'}), 400
+        
+        # Obtener las imágenes de la carpeta
+        folder_path = os.path.join('carpetas', folder_id)
+        if not os.path.exists(folder_path):
+            return jsonify({'success': False, 'error': f'La carpeta {folder_id} no existe'}), 404
+        
+        image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': 'No hay imágenes en la carpeta'}), 400
+        
+        # Ordenar las imágenes por fecha de modificación
+        image_files.sort(key=os.path.getmtime)
+        
+        # Crear carpeta de destino si no existe
+        pdf_folder = 'por_procesar'
+        os.makedirs(pdf_folder, exist_ok=True)
+        
+        # Generar nombre del PDF
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        pdf_filename = f"{project_code or 'SIN_CODIGO'}_{timestamp}.pdf"
+        pdf_path = os.path.join(pdf_folder, pdf_filename)
+        
+        # Crear el PDF
+        pdf_writer = PdfWriter()
+        
+        # Procesar cada imagen
+        for img_path in image_files:
+            try:
+                # Convertir imagen a PDF
+                with Image.open(img_path) as img:
+                    # Convertir a RGB si es necesario
+                    if img.mode in ('RGBA', 'LA'):
+                        background = Image.new(img.mode[:-1], img.size, (255, 255, 255))
+                        background.paste(img, img.split()[-1])
+                        img = background
+                    
+                    # Crear un PDF temporal con la imagen
+                    img_pdf = BytesIO()
+                    img.save(img_pdf, format='PDF')
+                    img_pdf.seek(0)
+                    
+                    # Añadir página al PDF final
+                    pdf_reader = PdfReader(img_pdf)
+                    pdf_writer.add_page(pdf_reader.pages[0])
+            except Exception as img_error:
+                logger.error(f"Error al procesar imagen {img_path}: {str(img_error)}")
+                continue
+        
+        # Guardar el PDF final
+        with open(pdf_path, 'wb') as output_pdf:
+            pdf_writer.write(output_pdf)
+        
+        # Registrar en CSV
+        csv_file = 'db_input.csv'
+        csv_exists = os.path.exists(csv_file)
+        
+        with open(csv_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            if not csv_exists:
+                writer.writerow(['fecha', 'carpeta', 'codigo_proyecto', 'caja', 'documento_presente', 'observacion', 'pdf_generado'])
+            
+            writer.writerow([
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                folder_id,
+                project_code or 'N/A',
+                box_number or 'N/A',
+                document_present,
+                observation,
+                pdf_filename
+            ])
+        
+        return jsonify({
+            'success': True,
+            'message': 'Documento indexado correctamente',
+            'pdf_filename': pdf_filename,
+            'pdf_path': pdf_path
+        }), 200
+        
+    except Exception as e:
+        error_msg = f"Error al generar PDF indexado: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
     os.makedirs('templates', exist_ok=True)
