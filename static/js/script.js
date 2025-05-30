@@ -922,3 +922,530 @@ function generarCuadratura() {
             cuadraturaBtn.disabled = false;
         });
 }
+
+// Función para establecer el modo activo
+function setActiveMode(mode) {
+    window.currentMode = mode;
+    
+    // Esta función se utiliza para mantener la compatibilidad con el código existente
+    // que depende de saber qué modo está activo
+    console.log('Modo activo establecido:', mode);
+}
+
+// Funciones para cargar datos específicos de cada modo
+function loadFolders() {
+    fetch('/get_folders')
+        .then(response => response.json())
+        .then(data => {
+            updateFolderList(data);
+            if (data.images && data.images.length > 0) {
+                updateFolderImageGrid(data.images);
+            }
+        })
+        .catch(error => {
+            console.error('Error al cargar carpetas:', error);
+        });
+}
+
+function updateFolderList(data) {
+    const folderList = document.getElementById('folderList');
+    if (!folderList) return;
+    
+    folderList.innerHTML = '';
+    
+    if (data.folders && data.folders.length > 0) {
+        data.folders.forEach(folder => {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.className = 'dropdown-item';
+            a.href = '#';
+            a.textContent = folder;
+            if (data.current_folder === folder) {
+                a.className += ' active';
+            }
+            a.addEventListener('click', function() {
+                loadFolderImages(folder);
+            });
+            li.appendChild(a);
+            folderList.appendChild(li);
+        });
+        
+        // Actualizar el texto del botón dropdown
+        const folderDropdown = document.getElementById('folderDropdown');
+        if (folderDropdown) {
+            folderDropdown.textContent = `Carpeta: ${data.current_folder || 'Ninguna'}`;
+        }
+    }
+}
+
+function updateFolderImageGrid(images) {
+    const imageGrid = document.getElementById('folderImageGrid');
+    if (!imageGrid) return;
+    
+    imageGrid.innerHTML = '';
+    
+    if (images.length === 0) {
+        imageGrid.innerHTML = '<div class="col-12 text-center"><p>No hay imágenes en esta carpeta</p></div>';
+        return;
+    }
+    
+    images.forEach(image => {
+        const col = document.createElement('div');
+        col.className = 'col';
+        col.innerHTML = `
+            <div class="card h-100 image-card">
+                <img src="${image.data}" class="card-img-top" alt="${image.name}">
+                <div class="card-body">
+                    <h5 class="card-title">${image.name}</h5>
+                    <p class="card-text">${image.modified}</p>
+                </div>
+            </div>
+        `;
+        imageGrid.appendChild(col);
+    });
+}
+
+function loadFolderImages(folder) {
+    fetch(`/get_folders?folder=${folder}`)
+        .then(response => response.json())
+        .then(data => {
+            updateFolderList(data);
+            if (data.images) {
+                updateFolderImageGrid(data.images);
+            }
+        })
+        .catch(error => {
+            console.error(`Error al cargar imágenes de carpeta ${folder}:`, error);
+        });
+}
+
+function loadPdfs() {
+    fetch('/list_pdfs')
+        .then(response => response.json())
+        .then(data => {
+            updatePdfTable(data);
+        })
+        .catch(error => {
+            console.error('Error al cargar PDFs:', error);
+        });
+}
+
+function updatePdfTable(pdfs) {
+    const tableBody = document.getElementById('pdfTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    if (!pdfs || pdfs.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="4" class="text-center">No hay documentos PDF disponibles</td>';
+        tableBody.appendChild(row);
+        return;
+    }
+    
+    pdfs.forEach(pdf => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${pdf.name}</td>
+            <td>${pdf.modified}</td>
+            <td>${pdf.size}</td>
+            <td>
+                <a href="/por_procesar/${pdf.name}" class="btn btn-sm btn-primary" target="_blank">
+                    <i class="fas fa-eye me-1"></i> Ver
+                </a>
+                <a href="/por_procesar/${pdf.name}" class="btn btn-sm btn-success" download>
+                    <i class="fas fa-download me-1"></i> Descargar
+                </a>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+}
+
+// Configuración de controles específicos
+function setupAutoRefresh() {
+    const autoRefreshSwitch = document.getElementById('autoRefreshSwitch');
+    if (autoRefreshSwitch) {
+        autoRefreshSwitch.addEventListener('change', function() {
+            if (this.checked) {
+                startFolderMonitoring();
+            } else {
+                clearInterval(window.folderCheckInterval);
+            }
+        });
+    }
+}
+
+function setupFileUpload() {
+    const fileUpload = document.getElementById('fileUpload');
+    if (fileUpload) {
+        fileUpload.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                uploadSelectedFiles(this.files);
+            }
+        });
+    }
+}
+
+function setupClearButton() {
+    const clearBtn = document.getElementById('clearBtn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            if (confirm('¿Está seguro que desea eliminar todas las imágenes?')) {
+                clearInputFolder();
+            }
+        });
+    }
+}
+
+// Funciones para las acciones específicas de cada modo
+function generateFolder() {
+    // Mostrar indicador de carga
+    const btn = document.getElementById('generateFolderBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Creando carpeta...';
+    btn.disabled = true;
+    
+    fetch('/generar_carpeta')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Carpeta creada',
+                    text: `Se ha creado la carpeta ${data.folder} con ${data.files_moved} imágenes`,
+                    confirmButtonText: 'Ir a Indexación',
+                    showCancelButton: true,
+                    cancelButtonText: 'Continuar Digitalizando'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        // Redirigir a la página de indexación
+                        window.location.href = '/indexacion';
+                    } else {
+                        // Refrescar las imágenes
+                        refreshImages();
+                    }
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: data.error || 'No se pudo crear la carpeta'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error al generar carpeta:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Ocurrió un error al crear la carpeta'
+            });
+        })
+        .finally(() => {
+            // Restaurar el botón
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+}
+
+function extractProjectCode() {
+    // Obtener la carpeta actual
+    const folderDropdown = document.getElementById('folderDropdown');
+    const currentFolder = folderDropdown.textContent.replace('Carpeta: ', '');
+    
+    if (!currentFolder || currentFolder === 'Ninguna') {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No hay carpeta seleccionada',
+            text: 'Seleccione una carpeta para extraer el código'
+        });
+        return;
+    }
+    
+    // Mostrar indicador de carga
+    const btn = document.getElementById('extractCodeBtn');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+    
+    fetch(`/ocr?folder=${currentFolder}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Llenar campos con información extraída
+                if (data.extracted_info.project_code) {
+                    document.getElementById('projectCode').value = data.extracted_info.project_code;
+                }
+                if (data.extracted_info.box_number) {
+                    document.getElementById('boxNumber').value = data.extracted_info.box_number;
+                }
+                if (data.extracted_info.observation) {
+                    document.getElementById('observation').value = data.extracted_info.observation;
+                }
+                
+                Swal.fire({
+                    icon: 'success',
+                    title: 'OCR Completado',
+                    text: `Se procesaron ${data.images_processed} imágenes`
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error en OCR',
+                    text: data.error || 'No se pudo extraer información'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error en OCR:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Ocurrió un error al procesar las imágenes'
+            });
+        })
+        .finally(() => {
+            // Restaurar el botón
+            btn.innerHTML = '<i class="fas fa-magic"></i>';
+            btn.disabled = false;
+        });
+}
+
+function generateIndexedPdf() {
+    // Obtener la carpeta actual
+    const folderDropdown = document.getElementById('folderDropdown');
+    const currentFolder = folderDropdown.textContent.replace('Carpeta: ', '');
+    
+    if (!currentFolder || currentFolder === 'Ninguna') {
+        Swal.fire({
+            icon: 'warning',
+            title: 'No hay carpeta seleccionada',
+            text: 'Seleccione una carpeta para generar el PDF'
+        });
+        return;
+    }
+    
+    // Obtener datos del formulario
+    const projectCode = document.getElementById('projectCode').value;
+    const boxNumber = document.getElementById('boxNumber').value;
+    const documentPresent = document.querySelector('input[name="documentPresent"]:checked').value;
+    const observation = document.getElementById('observation').value;
+    
+    // Validar código de proyecto (opcional)
+    if (projectCode && !(projectCode.length >= 6 && projectCode.startsWith('23'))) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Código de proyecto inválido',
+            text: 'El código debe comenzar con 23 y tener al menos 6 caracteres'
+        });
+        return;
+    }
+    
+    // Mostrar indicador de carga
+    const btn = document.getElementById('generatePdfBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Generando PDF...';
+    btn.disabled = true;
+    
+    // Datos para enviar
+    const data = {
+        folder_id: currentFolder,
+        project_code: projectCode,
+        box_number: boxNumber,
+        document_present: documentPresent,
+        observation: observation
+    };
+    
+    fetch('/generar_pdf_indexado', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'PDF Generado',
+                text: data.message,
+                confirmButtonText: 'Ir a Procesado',
+                showCancelButton: true,
+                cancelButtonText: 'Continuar Indexando'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Redirigir a la página de procesado
+                    window.location.href = '/procesado';
+                } else {
+                    // Limpiar el formulario
+                    document.getElementById('projectCode').value = '';
+                    document.getElementById('boxNumber').value = '';
+                    document.getElementById('docPresentYes').checked = true;
+                    document.getElementById('observation').value = '';
+                }
+            });
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.error || 'No se pudo generar el PDF'
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error al generar PDF:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Ocurrió un error al generar el PDF'
+        });
+    })
+    .finally(() => {
+        // Restaurar el botón
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    });
+}
+
+function startWorkflow() {
+    // Este botón ahora inicia el flujo de trabajo de indexación
+    executeOCR();
+}
+
+function generateReport() {
+    // Mostrar indicador de carga
+    const btn = document.getElementById('generateReportBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Generando...';
+    btn.disabled = true;
+    
+    fetch('/generate_cuadratura')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Error al generar el reporte');
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            // Crear enlace de descarga
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const now = new Date().toISOString().replace(/[:.]/g, '-');
+            a.href = url;
+            a.download = `cuadratura_${now}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Limpiar
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            Swal.fire({
+                icon: 'success',
+                title: 'Reporte Generado',
+                text: 'El reporte de cuadratura se ha descargado correctamente'
+            });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Ocurrió un error al generar el reporte'
+            });
+        })
+        .finally(() => {
+            // Restaurar el botón
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+}
+
+function exportData() {
+    // Función para exportar datos
+    Swal.fire({
+        icon: 'info',
+        title: 'Exportación de Datos',
+        text: 'Esta funcionalidad será implementada próximamente'
+    });
+}
+
+// Funciones adicionales de utilidad
+function clearInputFolder() {
+    fetch('/clear_input')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                refreshImages();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Carpeta limpiada',
+                    text: 'Se han eliminado todas las imágenes de la carpeta de entrada'
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: data.error || 'No se pudo limpiar la carpeta'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error al limpiar carpeta:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Ocurrió un error al limpiar la carpeta'
+            });
+        });
+}
+
+function uploadSelectedFiles(files) {
+    if (files.length === 0) return;
+    
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('file', files[i]);
+    }
+    
+    // Mostrar indicador de progreso
+    Swal.fire({
+        title: 'Subiendo archivos',
+        html: 'Por favor espere mientras se suben los archivos...',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+    
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Archivos Subidos',
+                text: `Se subieron ${data.files.length} archivos correctamente`
+            });
+            refreshImages();
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.error || 'No se pudieron subir los archivos'
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error al subir archivos:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Ocurrió un error al subir los archivos'
+        });
+    });
+}

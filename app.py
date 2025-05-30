@@ -252,7 +252,13 @@ def start_folder_monitor():
 @app.route('/')
 @login_required
 def index():
-    """Ruta principal que muestra la interfaz de usuario."""
+    """Ruta principal que redirige a la vista de digitalización por defecto."""
+    return redirect(url_for('digitalizacion'))
+
+@app.route('/digitalizacion')
+@login_required
+def digitalizacion():
+    """Vista de digitalización de documentos."""
     try:
         # Obtener las imágenes más recientes
         images = get_latest_images()
@@ -262,9 +268,33 @@ def index():
         for img_path in images:
             image_data.append(get_image_data(img_path))
         
-        return render_template('index.html', images=image_data)
+        return render_template('digitalizacion.html', images=image_data, active_page='digitalizacion')
     except Exception as e:
-        logger.error(f"Error al cargar índice: {str(e)}")
+        logger.error(f"Error al cargar digitalización: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('error.html', error=str(e))
+
+@app.route('/indexacion')
+@login_required
+def indexacion():
+    """Vista de indexación de documentos."""
+    try:
+        return render_template('indexacion.html', active_page='indexacion')
+    except Exception as e:
+        logger.error(f"Error al cargar indexación: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('error.html', error=str(e))
+
+@app.route('/procesado')
+@login_required
+def procesado():
+    """Vista de procesado de documentos."""
+    try:
+        return render_template('procesado.html', active_page='procesado')
+    except Exception as e:
+        logger.error(f"Error al cargar procesado: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return render_template('error.html', error=str(e))
@@ -567,7 +597,7 @@ def ocr():
         # Determinar el directorio de las imágenes
         if folder_id:
             # Modo Indexación - usar carpeta numerada
-            base_dir = os.path.join('carpetas', folder_id)
+            base_dir = os.path.join('proceso/carpetas', folder_id)
             logger.info(f"Ejecutando OCR en modo Indexación, carpeta: {folder_id}")
         else:
             # Modo Digitalización - usar carpeta input
@@ -1262,174 +1292,105 @@ def generate_cuadratura():
 @app.route('/generar_carpeta')
 @login_required
 def generar_carpeta():
-    """Crea una carpeta numerada y mueve las imágenes actuales a esa carpeta."""
+    """Genera una carpeta numerada y mueve las imágenes de input a ella."""
     try:
-        # Asegurar que la carpeta base existe
-        base_folder = 'carpetas'
-        os.makedirs(base_folder, exist_ok=True)
+        # Verificar que hay imágenes para mover
+        images = get_latest_images()
+        if not images:
+            return jsonify({
+                'success': False,
+                'error': 'No hay imágenes para mover'
+            }), 400
+        
+        # Crear directorio base si no existe
+        base_dir = 'proceso/carpetas'
+        os.makedirs(base_dir, exist_ok=True)
         
         # Determinar el siguiente número de carpeta
-        existing_folders = [d for d in os.listdir(base_folder) 
-                          if os.path.isdir(os.path.join(base_folder, d)) 
-                          and d.isdigit()]
-        
-        if existing_folders:
-            # Obtener el número más alto y agregar 1
-            next_number = max([int(folder) for folder in existing_folders]) + 1
-        else:
-            # Si no hay carpetas, empezar desde 1
-            next_number = 1
-        
-        # Formato con ceros a la izquierda (0001, 0002, etc.)
-        folder_name = f"{next_number:04d}"
-        folder_path = os.path.join(base_folder, folder_name)
+        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+        numeric_folders = [int(f) for f in folders if f.isdigit()]
+        next_folder = str(max(numeric_folders, default=0) + 1).zfill(6)
         
         # Crear la nueva carpeta
-        os.makedirs(folder_path, exist_ok=True)
+        new_folder_path = os.path.join(base_dir, next_folder)
+        os.makedirs(new_folder_path, exist_ok=True)
         
-        # Obtener todas las imágenes de la carpeta input
-        input_folder = app.config['UPLOAD_FOLDER']
-        image_files = get_latest_images(input_folder)
+        # Mover las imágenes a la nueva carpeta
+        files_moved = 0
+        for img_path in images:
+            filename = os.path.basename(img_path)
+            dest_path = os.path.join(new_folder_path, filename)
+            shutil.move(img_path, dest_path)
+            files_moved += 1
         
-        # Mover archivos a la nueva carpeta
-        moved_files = []
-        for file_path in image_files:
-            file_name = os.path.basename(file_path)
-            destination = os.path.join(folder_path, file_name)
-            shutil.move(file_path, destination)
-            moved_files.append(file_name)
-        
-        # Liberar memoria explícitamente
-        image_files = None
-        moved_files_count = len(moved_files)
-        moved_files = None
-        
-        # Forzar la recolección de basura
-        import gc
-        gc.collect()
-        
-        logger.info(f"Carpeta generada: {folder_path} con {moved_files_count} imágenes. Memoria liberada.")
+        logger.info(f"Carpeta {next_folder} creada con {files_moved} imágenes")
         
         return jsonify({
-            'success': True, 
-            'folder': folder_name, 
-            'path': folder_path,
-            'files_moved': moved_files_count
-        }), 200
-        
+            'success': True,
+            'folder': next_folder,
+            'files_moved': files_moved
+        })
     except Exception as e:
         error_msg = f"Error al generar carpeta: {str(e)}"
         logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
-        
-        # También forzar la recolección de basura en caso de error
-        import gc
-        gc.collect()
-        
-        return jsonify({'success': False, 'error': error_msg}), 500
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
 
 @app.route('/get_folders')
 @login_required
 def get_folders():
-    """Obtiene la lista de carpetas numeradas y opcionalmente el contenido de una carpeta específica"""
+    """Obtiene las carpetas disponibles para indexación."""
     try:
-        # Añadir registro de depuración
-        logger.info("Accediendo a get_folders")
+        # Crear el directorio base si no existe
+        base_dir = 'proceso/carpetas'
+        os.makedirs(base_dir, exist_ok=True)
         
-        # Obtener la carpeta solicitada (si hay)
-        folder_id = request.args.get('folder', None)
-        logger.info(f"Carpeta solicitada: {folder_id}")
+        # Obtener lista de carpetas (solo directorios, ordenados numéricamente)
+        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+        folders.sort(key=lambda x: int(x) if x.isdigit() else float('inf'))
         
-        # Obtener todas las carpetas numeradas
-        base_folder = 'carpetas'
-        if not os.path.exists(base_folder):
-            logger.info(f"Creando directorio base: {base_folder}")
-            os.makedirs(base_folder, exist_ok=True)
-            
-        # Listar todas las carpetas y registrar para depuración
-        all_items = os.listdir(base_folder)
-        logger.info(f"Todos los elementos en {base_folder}: {all_items}")
+        # Determinar la carpeta actual (del parámetro o la primera disponible)
+        folder_id = request.args.get('folder', folders[0] if folders else None)
         
-        folders = [d for d in all_items 
-                 if os.path.isdir(os.path.join(base_folder, d)) 
-                 and d.isdigit()]
+        # Si no hay carpeta especificada o la carpeta no existe, usar la primera disponible
+        if not folder_id or folder_id not in folders:
+            folder_id = folders[0] if folders else None
         
-        logger.info(f"Carpetas filtradas: {folders}")
-        
-        # Ordenar carpetas numéricamente
-        folders.sort(key=int)
-        
-        # Si no hay carpetas, devolver una lista vacía
-        if not folders:
-            logger.info("No se encontraron carpetas numeradas")
-            return jsonify({
-                'folders': [],
-                'current_folder': None,
-                'images': []
-            })
-        
-        # Si no se especificó una carpeta, usar la primera
-        if not folder_id and folders:
-            folder_id = folders[0]
-            logger.info(f"Usando primera carpeta: {folder_id}")
-        
-        # Si la carpeta especificada no existe, usar la primera
-        if folder_id not in folders and folders:
-            logger.info(f"Carpeta {folder_id} no existe, usando {folders[0]}")
-            folder_id = folders[0]
-        
-        # Obtener imágenes de la carpeta seleccionada
+        # Preparar datos de respuesta
         images = []
+        
+        # Si hay una carpeta seleccionada, obtener sus imágenes
         if folder_id:
-            folder_path = os.path.join(base_folder, folder_id)
-            logger.info(f"Buscando imágenes en: {folder_path}")
+            folder_path = os.path.join(base_dir, folder_id)
             
-            # Verificar si el directorio existe
-            if not os.path.exists(folder_path):
-                logger.error(f"¡Error! El directorio {folder_path} no existe")
-                return jsonify({
-                    'folders': folders,
-                    'current_folder': folder_id,
-                    'images': [],
-                    'error': f"El directorio {folder_path} no existe"
-                })
-            
-            # Parámetro para decidir si usar miniaturas (por defecto, sí)
-            use_thumbnails = request.args.get('thumbnails', 'true').lower() == 'true'
-            
-            # Obtener tamaño máximo de miniaturas (por defecto 800px)
-            try:
-                max_size = int(request.args.get('max_size', '800'))
-            except ValueError:
-                max_size = 800
-            
-            # Buscar archivos jpg/jpeg
+            # Obtener las imágenes de la carpeta
             image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
-            logger.info(f"Archivos de imágenes encontrados: {len(image_files)}")
             
-            if image_files:
-                image_files.sort(key=os.path.getmtime)  # Ordenar por fecha de modificación
-                
-                # Convertir imágenes a formato para la UI, usando miniaturas
-                try:
-                    images = [get_image_data(img, thumbnail=use_thumbnails, max_size=max_size) for img in image_files]
-                    logger.info(f"Imágenes procesadas: {len(images)}")
-                except Exception as img_error:
-                    logger.error(f"Error al procesar imágenes: {str(img_error)}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                
-                # Forzar recolección de basura después de procesar todas las imágenes
-                import gc
-                gc.collect()
+            # Ordenar por fecha de modificación (más antiguas primero)
+            image_files.sort(key=os.path.getmtime)
+            
+            # Procesar cada imagen para obtener los datos
+            try:
+                for img_path in image_files:
+                    img_data = get_image_data(img_path)
+                    if img_data['data']:  # Solo incluir si se pudo cargar la imagen
+                        images.append(img_data)
+                    else:
+                        logger.warning(f"No se pudo cargar la imagen: {img_path}")
+            except Exception as img_error:
+                logger.error(f"Error al procesar imágenes: {str(img_error)}")
+                import traceback
+                logger.error(traceback.format_exc())
         
         return jsonify({
             'folders': folders,
             'current_folder': folder_id,
             'images': images
         })
-    
     except Exception as e:
         error_msg = f"Error al obtener carpetas: {str(e)}"
         logger.error(error_msg)
@@ -1508,7 +1469,7 @@ def generar_pdf_indexado():
             return jsonify({'success': False, 'error': 'Código de proyecto inválido'}), 400
         
         # Obtener las imágenes de la carpeta
-        folder_path = os.path.join('carpetas', folder_id)
+        folder_path = os.path.join('proceso/carpetas', folder_id)
         if not os.path.exists(folder_path):
             return jsonify({'success': False, 'error': f'La carpeta {folder_id} no existe'}), 404
         
