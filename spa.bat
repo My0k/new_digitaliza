@@ -2,29 +2,39 @@
 setlocal enabledelayedexpansion
 
 echo ================================================
-echo === Instalador automático de Tesseract OCR ====
+echo === Instalador robusto de Tesseract + spa  ====
 echo ================================================
 echo.
 
-:: Verificar si Chocolatey ya esta instalado
+:: Verificar si Chocolatey esta instalado
 where choco >nul 2>&1
 if %errorlevel% neq 0 (
     echo [INFO] Chocolatey no esta instalado. Instalando...
     powershell -NoProfile -ExecutionPolicy Bypass -Command ^
      "iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
-    if %errorlevel% neq 0 (
-        echo [ERROR] No se pudo instalar Chocolatey.
+)
+
+:: Esperar hasta que choco este disponible (máximo 10 segundos)
+set /a retries=0
+:wait_for_choco
+where choco >nul 2>&1
+if %errorlevel% neq 0 (
+    set /a retries+=1
+    if !retries! gtr 10 (
+        echo [ERROR] No se pudo instalar Chocolatey correctamente.
         pause
         exit /b 1
     )
-) else (
-    echo [OK] Chocolatey ya esta instalado.
+    timeout /t 1 >nul
+    goto wait_for_choco
 )
 
-:: Agregar Chocolatey al PATH (en caso de que no este disponible aun)
+echo [OK] Chocolatey esta disponible.
+
+:: Agregar choco al PATH (por si acaso)
 set "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
 
-:: Instalar Tesseract OCR con Chocolatey
+:: Instalar Tesseract
 echo [INFO] Instalando Tesseract OCR...
 choco install tesseract -y
 if %errorlevel% neq 0 (
@@ -33,8 +43,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Verificar si la carpeta tessdata existe
+:: Descargar spa.traineddata
 set "TESSDATA_PATH=C:\Program Files\Tesseract-OCR\tessdata"
+set "LANG_FILE=spa.traineddata"
+set "DEST_FILE=!TESSDATA_PATH!\!LANG_FILE!"
+
 if not exist "!TESSDATA_PATH!" (
     echo [ERROR] No se encontro la carpeta: !TESSDATA_PATH!
     echo Es posible que Tesseract no se haya instalado correctamente.
@@ -42,9 +55,6 @@ if not exist "!TESSDATA_PATH!" (
     exit /b 1
 )
 
-:: Descargar idioma spa.traineddata si no existe
-set "LANG_FILE=spa.traineddata"
-set "DEST_FILE=!TESSDATA_PATH!\!LANG_FILE!"
 if exist "!DEST_FILE!" (
     echo [OK] El idioma 'spa' ya esta instalado.
 ) else (
@@ -57,12 +67,12 @@ if exist "!DEST_FILE!" (
     )
 )
 
-:: Verificar instalacion
+:: Verificación final
 echo.
-echo === Verificando Tesseract ===
+echo === Verificando instalación ===
 where tesseract
 tesseract --version
 
 echo.
-echo === PROCESO COMPLETADO ===
+echo === COMPLETADO ===
 pause
