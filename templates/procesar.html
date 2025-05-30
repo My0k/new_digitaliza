@@ -261,6 +261,29 @@
                                 <p>El PDF generado se encuentra en: ${data.pdf_path}</p>
                             </div>
                             
+                            <div class="card mb-3">
+                                <div class="card-header">Estadísticas</div>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Imágenes totales:</span>
+                                        <strong>${data.total_images || 'N/A'}</strong>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Imágenes procesadas:</span>
+                                        <strong>${data.processed_images || 'N/A'}</strong>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Páginas en blanco omitidas:</span>
+                                        <strong>${data.skipped_white_images || '0'}</strong>
+                                    </li>
+                                    ${data.processing_time ? `
+                                    <li class="list-group-item d-flex justify-content-between">
+                                        <span>Tiempo de procesamiento OCR:</span>
+                                        <strong>${data.processing_time}</strong>
+                                    </li>` : ''}
+                                </ul>
+                            </div>
+                            
                             <div class="d-grid gap-2">
                                 <a href="/view_pdf?path=${encodeURIComponent(data.pdf_path)}" target="_blank" class="btn btn-primary">
                                     <i class="fas fa-file-pdf me-2"></i> Ver PDF

@@ -305,15 +305,39 @@ def generar_pdf_simple(folder_id):
         # Ordenar imágenes por fecha de modificación (más antiguas primero)
         image_files.sort(key=os.path.getmtime)
         
+        # Filtrar imágenes que son principalmente blancas
+        print(f"Analizando {len(image_files)} imágenes para detectar páginas en blanco...")
+        filtered_images = []
+        white_images = 0
+        
+        for img_path in image_files:
+            if not is_mostly_white(img_path):
+                filtered_images.append(img_path)
+            else:
+                white_images += 1
+        
+        # Informar sobre las imágenes filtradas
+        if white_images > 0:
+            print(f"Se han filtrado {white_images} imágenes principalmente blancas")
+            logger.info(f"Se han filtrado {white_images} imágenes principalmente blancas de la carpeta {folder_id}")
+        
+        # Verificar si quedan imágenes después del filtrado
+        if not filtered_images:
+            return {
+                'success': False,
+                'error': f"Todas las imágenes en la carpeta {folder_id} son principalmente blancas"
+            }
+        
         # Nombre del archivo PDF de salida
         output_pdf = os.path.join(output_dir, f"{folder_id}.pdf")
         
-        # Crear un PDF básico con las imágenes
-        logger.info(f"Generando PDF para la carpeta {folder_id} con {len(image_files)} imágenes")
+        # Generar PDF básico con las imágenes
+        logger.info(f"Generando PDF para la carpeta {folder_id} con {len(filtered_images)} imágenes")
         
+        # Crear un PDF con reportlab
         c = canvas.Canvas(output_pdf, pagesize=letter)
         
-        for img_path in image_files:
+        for img_path in filtered_images:
             try:
                 with Image.open(img_path) as img:
                     # Verificar que la imagen es válida
@@ -335,53 +359,35 @@ def generar_pdf_simple(folder_id):
                 logger.error(f"Error al procesar imagen {img_path}: {str(img_err)}")
         
         c.save()
-        logger.info(f"PDF generado exitosamente: {output_pdf}")
+        logger.info(f"PDF generado: {output_pdf}")
         
-        # Registrar la carpeta procesada en carpetas.csv en la columna ocr_generado
+        # Actualizar archivo de carpetas procesadas
         try:
             import csv
             
             carpetas_csv = 'carpetas.csv'
+            carpetas_headers = ['carpeta_indexada', 'ocr_generado']
             carpetas_rows = []
-            carpeta_found = False
             
-            # Verificar si el archivo existe y tiene contenido
+            # Leer archivo si existe
             if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
                 with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
                     reader = csv.reader(csvfile)
-                    carpetas_headers = next(reader)  # Guardar encabezados
-                    
-                    # Asegurarse de que existe la columna ocr_generado
-                    if 'ocr_generado' not in carpetas_headers:
-                        carpetas_headers.append('ocr_generado')
-                    
-                    ocr_generado_index = carpetas_headers.index('ocr_generado')
-                    
-                    # Leer filas existentes y buscar si la carpeta ya está registrada
-                    for row in reader:
-                        if row and len(row) > 0:
-                            if row[0] == folder_id:
-                                carpeta_found = True
-                                # Asegurarse de que la fila tiene suficientes columnas
-                                while len(row) <= ocr_generado_index:
-                                    row.append('')
-                                # Actualizar el valor de ocr_generado
-                                row[ocr_generado_index] = folder_id
-                            
-                            # Guardar la fila (actualizada o no)
-                            carpetas_rows.append(row)
-            else:
-                # Si el archivo no existe o está vacío, crear encabezados
-                carpetas_headers = ['carpeta_indexada', 'ocr_generado']
-                ocr_generado_index = 1
+                    carpetas_headers = next(reader)  # Leer encabezados
+                    carpetas_rows = list(reader)  # Leer filas existentes
             
-            # Si la carpeta no está registrada, añadirla con ocr_generado
-            if not carpeta_found:
-                new_row = [''] * len(carpetas_headers)
-                new_row[ocr_generado_index] = folder_id
-                carpetas_rows.append(new_row)
+            # Buscar si la carpeta ya existe en el CSV
+            folder_exists = False
+            for row in carpetas_rows:
+                if len(row) > 1 and row[1] == folder_id:
+                    folder_exists = True
+                    break
             
-            # Escribir el archivo carpetas.csv actualizado
+            # Si la carpeta no existe, añadirla
+            if not folder_exists:
+                carpetas_rows.append(['', folder_id])
+            
+            # Escribir archivo actualizado
             with open(carpetas_csv, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(carpetas_headers)
@@ -398,7 +404,10 @@ def generar_pdf_simple(folder_id):
             'success': True,
             'message': f"PDF generado: {output_pdf}",
             'pdf_path': output_pdf,
-            'folder_id': folder_id
+            'folder_id': folder_id,
+            'total_images': len(image_files),
+            'processed_images': len(filtered_images),
+            'skipped_white_images': white_images
         }
         
     except Exception as e:
@@ -689,6 +698,49 @@ def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, c
         import traceback
         logger.error(traceback.format_exc())
         print(traceback.format_exc())
+        return False
+
+def is_mostly_white(image_path, threshold=99.6):
+    """
+    Determina si una imagen es principalmente blanca.
+    
+    Args:
+        image_path (str): Ruta a la imagen a analizar
+        threshold (float): Porcentaje de píxeles blancos para considerar una imagen como blanca (0-100)
+        
+    Returns:
+        bool: True si la imagen es principalmente blanca, False en caso contrario
+    """
+    try:
+        with Image.open(image_path) as img:
+            # Convertir a escala de grises para simplificar el análisis
+            img_gray = img.convert('L')
+            
+            # Obtener histograma (distribución de niveles de gris)
+            hist = img_gray.histogram()
+            
+            # Calcular total de píxeles
+            total_pixels = img.width * img.height
+            
+            # Contar píxeles muy claros (valores cercanos a 255)
+            # Consideramos los valores de 240-255 como "casi blancos"
+            white_pixels = sum(hist[240:])
+            
+            # Calcular porcentaje de píxeles blancos
+            white_percentage = (white_pixels / total_pixels) * 100
+            
+            # Verificar si excede el umbral
+            is_white = white_percentage >= threshold
+            
+            if is_white:
+                logger.info(f"Imagen {os.path.basename(image_path)} detectada como página en blanco ({white_percentage:.2f}% blanco)")
+                print(f"Imagen {os.path.basename(image_path)} detectada como página en blanco ({white_percentage:.2f}% blanco)")
+            
+            return is_white
+            
+    except Exception as e:
+        logger.error(f"Error al analizar si la imagen {image_path} es blanca: {str(e)}")
+        # En caso de error, asumimos que no es blanca para procesarla
         return False
 
 if __name__ == "__main__":
