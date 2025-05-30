@@ -1,76 +1,65 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
+
+echo ================================================
+echo === Instalador automático de Tesseract OCR ====
+echo ================================================
 echo.
-echo ========================================
-echo === INSTALADOR TESSERACT + IDIOMA 'spa'
-echo ========================================
-echo.
 
-cd /d C:\new_digitaliza-sinapi
-
-:: Paso 1 - Detectar arquitectura de Windows
-echo [INFO] Detectando arquitectura del sistema...
-set "ARCH="
-if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
-    set "ARCH=x64"
+:: Verificar si Chocolatey ya esta instalado
+where choco >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] Chocolatey no esta instalado. Instalando...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+     "iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
+    if %errorlevel% neq 0 (
+        echo [ERROR] No se pudo instalar Chocolatey.
+        pause
+        exit /b 1
+    )
 ) else (
-    set "ARCH=x86"
-)
-echo [INFO] Arquitectura detectada: %ARCH%
-
-:: Paso 2 - Establecer URL del instalador según arquitectura
-if "%ARCH%"=="x64" (
-    set "INSTALLER_URL=https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.3.20231005/tesseract-ocr-w64-setup-v5.3.3.20231005.exe"
-) else (
-    set "INSTALLER_URL=https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.3.20231005/tesseract-ocr-w32-setup-v5.3.3.20231005.exe"
+    echo [OK] Chocolatey ya esta instalado.
 )
 
-set "INSTALLER_FILE=tesseract-installer.exe"
+:: Agregar Chocolatey al PATH (en caso de que no este disponible aun)
+set "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
 
-:: Paso 3 - Descargar instalador
-echo [INFO] Descargando instalador desde:
-echo %INSTALLER_URL%
-powershell -Command "Invoke-WebRequest -Uri '%INSTALLER_URL%' -OutFile '%INSTALLER_FILE%'"
-
-:: Paso 4 - Ejecutar instalador silenciosamente
+:: Instalar Tesseract OCR con Chocolatey
 echo [INFO] Instalando Tesseract OCR...
-start /wait %INSTALLER_FILE% /SILENT
-
-:: Paso 5 - Establecer variables
-set "TESS_PATH=C:\Program Files\Tesseract-OCR"
-set "TESSDATA_PATH=%TESS_PATH%\tessdata"
-set "LANG_FILE=spa.traineddata"
-set "DOWNLOAD_URL=https://github.com/tesseract-ocr/tessdata/raw/main/%LANG_FILE%"
-set "DEST_FILE=%TESSDATA_PATH%\%LANG_FILE%"
-
-:: Agregar Tesseract al PATH para esta sesión
-set "PATH=%PATH%;%TESS_PATH%"
-
-:: Paso 6 - Verificar carpeta tessdata
-if not exist "%TESSDATA_PATH%" (
-    echo [ERROR] No se encontro la carpeta: %TESSDATA_PATH%
-    echo Asegurate de que Tesseract se haya instalado correctamente.
+choco install tesseract -y
+if %errorlevel% neq 0 (
+    echo [ERROR] Fallo la instalacion de Tesseract.
     pause
-    exit /b
+    exit /b 1
 )
 
-:: Paso 7 - Descargar idioma spa si no existe
-if exist "%DEST_FILE%" (
-    echo [OK] El idioma 'spa' ya esta instalado en: %DEST_FILE%
+:: Verificar si la carpeta tessdata existe
+set "TESSDATA_PATH=C:\Program Files\Tesseract-OCR\tessdata"
+if not exist "!TESSDATA_PATH!" (
+    echo [ERROR] No se encontro la carpeta: !TESSDATA_PATH!
+    echo Es posible que Tesseract no se haya instalado correctamente.
+    pause
+    exit /b 1
+)
+
+:: Descargar idioma spa.traineddata si no existe
+set "LANG_FILE=spa.traineddata"
+set "DEST_FILE=!TESSDATA_PATH!\!LANG_FILE!"
+if exist "!DEST_FILE!" (
+    echo [OK] El idioma 'spa' ya esta instalado.
 ) else (
     echo [INFO] Descargando idioma 'spa'...
-    powershell -Command "Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%DEST_FILE%'"
-
-    if exist "%DEST_FILE%" (
-        echo [OK] spa instalado exitosamente.
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/tesseract-ocr/tessdata/raw/main/spa.traineddata' -OutFile '!DEST_FILE!'"
+    if exist "!DEST_FILE!" (
+        echo [OK] spa.traineddata descargado correctamente.
     ) else (
-        echo [ERROR] Fallo la descarga del idioma.
+        echo [ERROR] No se pudo descargar spa.traineddata.
     )
 )
 
-:: Paso 8 - Verificacion
+:: Verificar instalacion
 echo.
-echo === VERIFICANDO INSTALACION DE TESSERACT ===
+echo === Verificando Tesseract ===
 where tesseract
 tesseract --version
 
