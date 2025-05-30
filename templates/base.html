@@ -22,11 +22,14 @@
                 <a class="nav-link {% if active_page == 'digitalizacion' %}active{% endif %}" href="{{ url_for('digitalizacion') }}">
                     <i class="fas fa-scanner me-1"></i> Digitalización
                 </a>
+                <a class="nav-link {% if active_page == 'procesar' %}active{% endif %}" href="{{ url_for('procesar') }}">
+                    <i class="fas fa-cogs me-1"></i> Procesar
+                </a>
                 <a class="nav-link {% if active_page == 'indexacion' %}active{% endif %}" href="{{ url_for('indexacion') }}">
                     <i class="fas fa-folder-open me-1"></i> Indexación
                 </a>
-                <a class="nav-link {% if active_page == 'procesado' %}active{% endif %}" href="{{ url_for('procesado') }}">
-                    <i class="fas fa-file-pdf me-1"></i> Procesado
+                <a class="nav-link {% if active_page == 'exportar' %}active{% endif %}" href="{{ url_for('exportar') }}">
+                    <i class="fas fa-file-export me-1"></i> Exportar
                 </a>
             </div>
             

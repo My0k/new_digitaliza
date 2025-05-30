@@ -131,6 +131,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
         }
     });
+
+    // Comprobar si estamos en la página de digitalización
+    if (window.location.pathname === '/digitalizacion') {
+        setupLazyLoading();
+    }
+
+    // Si estamos en la página de indexación, configurar las imágenes
+    if (window.location.pathname === '/indexacion') {
+        loadFolders();
+        
+        // Al cargar los folders, se llamará a updateFolderImageGrid 
+        // que a su vez llamará a setupImageOpening
+    }
 });
 
 // Variable para almacenar la última modificación conocida
@@ -211,105 +224,149 @@ function swapDocuments() {
 
 // Función para actualizar las imágenes
 function refreshImages() {
+    // Mostrar indicador de carga
+    showLoadingIndicator('imageGrid');
+    
     fetch('/refresh')
         .then(response => response.json())
         .then(data => {
-            // Si es la primera carga o tenemos nuevas imágenes, inicializar el orden
-            if (imageOrder.length === 0 || data.length !== imageOrder.length) {
-                imageOrder = data.map(image => image.name);
+            if (data.success) {
+                setupLazyLoading();
+                updateLastUpdateTime();
+            } else {
+                document.getElementById('imageGrid').innerHTML = 
+                    '<div class="alert alert-danger">Error al cargar las imágenes: ' + data.error + '</div>';
+                console.error('Error al refrescar imágenes:', data.error);
             }
-            
-            // Ordenar los datos según el orden actual
-            const orderedData = [];
-            for (const imageName of imageOrder) {
-                const image = data.find(img => img.name === imageName);
-                if (image) {
-                    orderedData.push(image);
-                }
-            }
-            
-            // Añadir cualquier imagen nueva que no esté en nuestro orden
-            for (const image of data) {
-                if (!imageOrder.includes(image.name)) {
-                    orderedData.push(image);
-                    imageOrder.push(image.name);
-                }
-            }
-
-            const documentContainer = document.getElementById('documentContainer');
-            documentContainer.innerHTML = ''; // Limpiar contenedor
-            
-            orderedData.forEach((image, index) => {
-                if (!image.data) {
-                    // Si no hay imagen, mostrar mensaje
-                    const noImageDiv = document.createElement('div');
-                    noImageDiv.className = 'col-md-6 mb-4';
-                    noImageDiv.innerHTML = `
-                        <div class="card h-100">
-                            <div class="card-header bg-secondary text-white">
-                                <h5 class="card-title mb-0">No hay imagen disponible</h5>
-                            </div>
-                            <div class="card-body d-flex align-items-center justify-content-center">
-                                <p class="text-muted">No se han subido imágenes</p>
-                            </div>
-                        </div>
-                    `;
-                    documentContainer.appendChild(noImageDiv);
-                } else {
-                    // Crear tarjeta para la imagen
-                    const imageCard = document.createElement('div');
-                    imageCard.className = 'col-md-6 mb-4';
-                    
-                    // Añadir una clase especial a la primera imagen
-                    const isFirstImage = index === 0;
-                    const cardHeaderClass = isFirstImage ? 'bg-success' : 'bg-primary';
-                    const firstImageBadge = isFirstImage ? 
-                        '<span class="badge bg-warning text-dark me-2">Primera</span>' : '';
-                    
-                    imageCard.innerHTML = `
-                        <div class="card h-100 ${isFirstImage ? 'border border-success border-3' : ''}">
-                            <div class="card-header ${cardHeaderClass} text-white d-flex justify-content-between align-items-center">
-                                <h5 class="card-title mb-0">
-                                    ${firstImageBadge}${image.name}
-                                </h5>
-                                <div class="document-tools">
-                                    <button class="btn btn-sm btn-secondary move-up-btn" data-filename="${image.name}" title="Mover arriba" ${index === 0 ? 'disabled' : ''}>
-                                        <i class="fas fa-arrow-up"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo" ${index === orderedData.length - 1 ? 'disabled' : ''}>
-                                        <i class="fas fa-arrow-down"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-primary move-to-first-btn" data-filename="${image.name}" title="Mover a primera posición" ${index === 0 ? 'disabled' : ''}>
-                                        <i class="fas fa-angle-double-up"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-danger delete-btn" data-filename="${image.name}" title="Eliminar">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-info rotate-left" data-filename="${image.name}" title="Rotar izquierda">
-                                        <i class="fas fa-undo"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-info rotate-right" data-filename="${image.name}" title="Rotar derecha">
-                                        <i class="fas fa-redo"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="card-body document-container">
-                                <img src="${image.data}" class="img-fluid document-image" alt="${image.name}">
-                            </div>
-                            <div class="card-footer text-muted">
-                                <small>Modificado: ${image.modified}</small>
-                                <span class="badge bg-info float-end">Página ${index + 1}</span>
-                            </div>
-                        </div>
-                    `;
-                    documentContainer.appendChild(imageCard);
-                }
-            });
-            
-            // Añadir eventos a los botones después de crear los elementos
-            addButtonEvents();
         })
-        .catch(error => console.error('Error al actualizar imágenes:', error));
+        .catch(error => {
+            document.getElementById('imageGrid').innerHTML = 
+                '<div class="alert alert-danger">Error al conectar con el servidor</div>';
+            console.error('Error al refrescar imágenes:', error);
+        });
+}
+
+function setupLazyLoading() {
+    // Mostrar indicador de carga mientras obtenemos las imágenes
+    showLoadingIndicator('imageGrid');
+    
+    // Obtener todas las imágenes
+    fetch('/refresh')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const images = data.images;
+                
+                if (images.length === 0) {
+                    document.getElementById('imageGrid').innerHTML = 
+                        '<div class="col-12 text-center"><p>No hay imágenes disponibles</p></div>';
+                    return;
+                }
+                
+                // Mostrar solo las primeras 12 al inicio
+                updateImageGrid(images.slice(0, 12));
+                
+                // Si hay más de 12 imágenes, configurar lazy loading
+                if (images.length > 12) {
+                    // Crear un elemento marcador para el final de las imágenes visibles
+                    const loadMoreMarker = document.createElement('div');
+                    loadMoreMarker.id = 'load-more-marker';
+                    loadMoreMarker.style.height = '50px';
+                    document.getElementById('imageGrid').appendChild(loadMoreMarker);
+                    
+                    // Configurar observer para cargar más imágenes cuando el marcador sea visible
+                    const observer = new IntersectionObserver((entries) => {
+                        entries.forEach(entry => {
+                            if (entry.isIntersecting) {
+                                // Cargar el siguiente lote de imágenes
+                                const currentCount = document.querySelectorAll('#imageGrid .col').length;
+                                const nextBatch = images.slice(currentCount, currentCount + 12);
+                                
+                                if (nextBatch.length > 0) {
+                                    // Añadir el siguiente lote al grid
+                                    appendToImageGrid(nextBatch);
+                                } else {
+                                    // Si no hay más imágenes, desconectar el observer
+                                    observer.disconnect();
+                                    // Y quitar el marcador
+                                    loadMoreMarker.remove();
+                                }
+                            }
+                        });
+                    }, {
+                        root: null,
+                        rootMargin: '100px',
+                        threshold: 0.1
+                    });
+                    
+                    // Comenzar a observar el marcador
+                    observer.observe(loadMoreMarker);
+                }
+                
+                // Actualizar el tiempo de última actualización
+                updateLastUpdateTime();
+            } else {
+                document.getElementById('imageGrid').innerHTML = 
+                    '<div class="alert alert-danger">Error al cargar las imágenes: ' + data.error + '</div>';
+                console.error('Error al refrescar imágenes:', data.error);
+            }
+        })
+        .catch(error => {
+            document.getElementById('imageGrid').innerHTML = 
+                '<div class="alert alert-danger">Error al conectar con el servidor</div>';
+            console.error('Error al refrescar imágenes:', error);
+        });
+}
+
+function updateImageGrid(imageSet) {
+    const imageGrid = document.getElementById('imageGrid');
+    if (!imageGrid) return;
+    
+    imageGrid.innerHTML = '';
+    
+    if (imageSet.length === 0) {
+        imageGrid.innerHTML = '<div class="col-12 text-center"><p>No hay imágenes disponibles</p></div>';
+        return;
+    }
+    
+    appendToImageGrid(imageSet);
+}
+
+function appendToImageGrid(imageSet) {
+    const imageGrid = document.getElementById('imageGrid');
+    if (!imageGrid) return;
+    
+    imageSet.forEach(image => {
+        const col = document.createElement('div');
+        col.className = 'col';
+        col.innerHTML = `
+            <div class="card h-100 image-card">
+                <img src="${image.data}" class="card-img-top" alt="${image.name}" loading="lazy">
+                <div class="card-body">
+                    <h5 class="card-title">${image.name}</h5>
+                    <p class="card-text">${image.modified}</p>
+                </div>
+                <div class="card-footer text-center">
+                    <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'left')">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                    <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'right')">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteImage('${image.name}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        imageGrid.appendChild(col);
+    });
+    
+    // Asegurarse de que el marcador siempre está al final
+    const loadMoreMarker = document.getElementById('load-more-marker');
+    if (loadMoreMarker) {
+        imageGrid.appendChild(loadMoreMarker);
+    }
 }
 
 function addButtonEvents() {
@@ -934,48 +991,77 @@ function setActiveMode(mode) {
 
 // Funciones para cargar datos específicos de cada modo
 function loadFolders() {
+    // Mostrar indicador de carga en el selector de carpetas
+    const folderSelect = document.getElementById('folderSelect');
+    if (folderSelect) {
+        folderSelect.innerHTML = '<option value="">Cargando carpetas...</option>';
+        folderSelect.disabled = true;
+    }
+    
+    // Mostrar indicador en el grid de imágenes
+    showLoadingIndicator('folderImageGrid');
+    
     fetch('/get_folders')
         .then(response => response.json())
         .then(data => {
-            updateFolderList(data);
-            if (data.images && data.images.length > 0) {
+            updateFolderSelect(data.folders, data.current_folder);
+            if (data.current_folder) {
                 updateFolderImageGrid(data.images);
+            } else {
+                document.getElementById('folderImageGrid').innerHTML = 
+                    '<div class="alert alert-info">Seleccione una carpeta para ver sus imágenes</div>';
             }
         })
         .catch(error => {
             console.error('Error al cargar carpetas:', error);
+            document.getElementById('folderImageGrid').innerHTML = 
+                '<div class="alert alert-danger">Error al cargar las imágenes. Por favor, intente nuevamente.</div>';
+            
+            // Restaurar selector de carpetas
+            if (folderSelect) {
+                folderSelect.innerHTML = '<option value="">Error al cargar carpetas</option>';
+                folderSelect.disabled = false;
+            }
         });
 }
 
-function updateFolderList(data) {
-    const folderList = document.getElementById('folderList');
-    if (!folderList) return;
+function updateFolderSelect(folders, currentFolder) {
+    const folderSelect = document.getElementById('folderSelect');
+    if (!folderSelect) return;
     
-    folderList.innerHTML = '';
+    folderSelect.innerHTML = '';
+    folderSelect.disabled = false;
     
-    if (data.folders && data.folders.length > 0) {
-        data.folders.forEach(folder => {
-            const li = document.createElement('li');
-            const a = document.createElement('a');
-            a.className = 'dropdown-item';
-            a.href = '#';
-            a.textContent = folder;
-            if (data.current_folder === folder) {
-                a.className += ' active';
-            }
-            a.addEventListener('click', function() {
-                loadFolderImages(folder);
-            });
-            li.appendChild(a);
-            folderList.appendChild(li);
-        });
-        
-        // Actualizar el texto del botón dropdown
-        const folderDropdown = document.getElementById('folderDropdown');
-        if (folderDropdown) {
-            folderDropdown.textContent = `Carpeta: ${data.current_folder || 'Ninguna'}`;
-        }
+    if (folders.length === 0) {
+        folderSelect.innerHTML = '<option value="">No hay carpetas disponibles</option>';
+        folderSelect.disabled = true;
+        return;
     }
+    
+    // Opción por defecto
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Seleccione una carpeta';
+    folderSelect.appendChild(defaultOption);
+    
+    // Añadir cada carpeta como una opción
+    folders.forEach(folder => {
+        const option = document.createElement('option');
+        option.value = folder;
+        option.textContent = `Carpeta ${folder}`;
+        option.selected = folder === currentFolder;
+        folderSelect.appendChild(option);
+    });
+    
+    // Evento al cambiar de carpeta
+    folderSelect.onchange = function() {
+        if (this.value) {
+            loadFolderImages(this.value);
+        } else {
+            document.getElementById('folderImageGrid').innerHTML = 
+                '<div class="alert alert-info">Seleccione una carpeta para ver sus imágenes</div>';
+        }
+    };
 }
 
 function updateFolderImageGrid(images) {
@@ -991,31 +1077,37 @@ function updateFolderImageGrid(images) {
     
     images.forEach(image => {
         const col = document.createElement('div');
-        col.className = 'col';
+        col.className = 'col-md-4 mb-3';
         col.innerHTML = `
-            <div class="card h-100 image-card">
-                <img src="${image.data}" class="card-img-top" alt="${image.name}">
+            <div class="card h-100">
+                <img src="${image.data}" class="card-img-top indexing-image" alt="${image.name}" 
+                     loading="lazy" data-original-path="${image.path || ''}" data-full-size-url="${image.original_url || image.data}">
                 <div class="card-body">
-                    <h5 class="card-title">${image.name}</h5>
-                    <p class="card-text">${image.modified}</p>
+                    <h6 class="card-title">${image.name}</h6>
+                    <p class="card-text small">${image.modified}</p>
                 </div>
             </div>
         `;
         imageGrid.appendChild(col);
     });
+    
+    // Configurar las imágenes para que se abran en una nueva pestaña
+    setupImageOpening();
 }
 
-function loadFolderImages(folder) {
-    fetch(`/get_folders?folder=${folder}`)
+function loadFolderImages(folderId) {
+    // Mostrar indicador de carga
+    showLoadingIndicator('folderImageGrid');
+    
+    fetch(`/get_folders?folder=${folderId}`)
         .then(response => response.json())
         .then(data => {
-            updateFolderList(data);
-            if (data.images) {
-                updateFolderImageGrid(data.images);
-            }
+            updateFolderImageGrid(data.images);
         })
         .catch(error => {
-            console.error(`Error al cargar imágenes de carpeta ${folder}:`, error);
+            console.error('Error al cargar imágenes de la carpeta:', error);
+            document.getElementById('folderImageGrid').innerHTML = 
+                '<div class="alert alert-danger">Error al cargar las imágenes. Por favor, intente nuevamente.</div>';
         });
 }
 
@@ -1103,28 +1195,23 @@ function generateFolder() {
     // Mostrar indicador de carga
     const btn = document.getElementById('generateFolderBtn');
     const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Creando carpeta...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Creando...';
     btn.disabled = true;
     
     fetch('/generar_carpeta')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                // Mostrar alerta de éxito
                 Swal.fire({
                     icon: 'success',
-                    title: 'Carpeta creada',
+                    title: 'Carpeta Creada',
                     text: `Se ha creado la carpeta ${data.folder} con ${data.files_moved} imágenes`,
-                    confirmButtonText: 'Ir a Indexación',
-                    showCancelButton: true,
-                    cancelButtonText: 'Continuar Digitalizando'
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        // Redirigir a la página de indexación
-                        window.location.href = '/indexacion';
-                    } else {
-                        // Refrescar las imágenes
-                        refreshImages();
-                    }
+                    showConfirmButton: false,
+                    timer: 1500 // Auto-cerrar después de 1.5 segundos
+                }).then(() => {
+                    // Refrescar la página después de cerrar la alerta
+                    window.location.reload();
                 });
             } else {
                 Swal.fire({
@@ -1132,6 +1219,9 @@ function generateFolder() {
                     title: 'Error',
                     text: data.error || 'No se pudo crear la carpeta'
                 });
+                // Restaurar el botón
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
         })
         .catch(error => {
@@ -1141,8 +1231,6 @@ function generateFolder() {
                 title: 'Error',
                 text: 'Ocurrió un error al crear la carpeta'
             });
-        })
-        .finally(() => {
             // Restaurar el botón
             btn.innerHTML = originalText;
             btn.disabled = false;
@@ -1268,15 +1356,15 @@ function generateIndexedPdf() {
         if (data.success) {
             Swal.fire({
                 icon: 'success',
-                title: 'PDF Generado',
-                text: data.message,
-                confirmButtonText: 'Ir a Procesado',
+                title: 'PDF generado correctamente',
+                text: `Se ha generado el PDF: ${data.pdf_name}`,
+                confirmButtonText: 'Ir a Exportar',
                 showCancelButton: true,
-                cancelButtonText: 'Continuar Indexando'
+                cancelButtonText: 'Continuar'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Redirigir a la página de procesado
-                    window.location.href = '/procesado';
+                    // Redirigir a la página de exportar en lugar de procesado
+                    window.location.href = '/exportar';
                 } else {
                     // Limpiar el formulario
                     document.getElementById('projectCode').value = '';
@@ -1448,4 +1536,113 @@ function uploadSelectedFiles(files) {
             text: 'Ocurrió un error al subir los archivos'
         });
     });
+}
+
+// Función para cargar carpetas en la vista de procesamiento
+function loadProcessFolders() {
+    fetch('/get_process_folders')
+        .then(response => response.json())
+        .then(data => {
+            updateProcessFoldersList(data.folders);
+        })
+        .catch(error => {
+            console.error('Error al cargar carpetas para procesar:', error);
+        });
+}
+
+// Función para actualizar la lista de carpetas para procesar
+function updateProcessFoldersList(folders) {
+    const folderTableBody = document.querySelector('#processTable tbody');
+    if (!folderTableBody) return;
+    
+    folderTableBody.innerHTML = '';
+    
+    if (folders.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td colspan="5" class="text-center">No hay carpetas disponibles</td>';
+        folderTableBody.appendChild(row);
+        return;
+    }
+    
+    folders.forEach(folder => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${folder.name}</td>
+            <td>${folder.created_at || '-'}</td>
+            <td>${folder.image_count || 'Desconocido'}</td>
+            <td><span class="badge bg-${folder.processed ? 'success' : 'secondary'}">${folder.processed ? 'Procesado' : 'Pendiente'}</span></td>
+            <td>
+                <button class="btn btn-sm btn-primary process-folder-btn" data-folder="${folder.name}" ${folder.processed ? 'disabled' : ''}>
+                    <i class="fas fa-magic me-1"></i> Procesar
+                </button>
+            </td>
+        `;
+        folderTableBody.appendChild(row);
+    });
+    
+    // Añadir eventos a los botones
+    document.querySelectorAll('.process-folder-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const folder = this.getAttribute('data-folder');
+            processFolder(folder);
+        });
+    });
+}
+
+// Función para procesar una carpeta específica
+function processFolder(folder) {
+    Swal.fire({
+        icon: 'info',
+        title: 'En proceso',
+        text: `La funcionalidad de procesamiento para la carpeta ${folder} se está implementando`
+    });
+}
+
+// Función para hacer que las imágenes en la indexación se abran en una nueva pestaña
+function setupImageOpening() {
+    // Seleccionar todas las imágenes en la vista de indexación
+    const indexImages = document.querySelectorAll('.indexing-image');
+    
+    indexImages.forEach(img => {
+        img.style.cursor = 'pointer'; // Cambiar el cursor para indicar que es clickeable
+        
+        img.addEventListener('click', function(e) {
+            // Prevenir cualquier comportamiento predeterminado
+            e.stopPropagation();
+            
+            // Obtener la URL de la imagen en tamaño completo
+            const fullSizeUrl = this.getAttribute('data-full-size-url');
+            const originalPath = this.getAttribute('data-original-path');
+            
+            // Si existe una ruta original, obtener la imagen a través de la API
+            if (originalPath) {
+                // Construir una URL para obtener la imagen original
+                const imageRequestUrl = `/get_original_image?path=${encodeURIComponent(originalPath)}`;
+                
+                // Abrir la URL en una nueva pestaña
+                window.open(imageRequestUrl, '_blank');
+            } else if (fullSizeUrl) {
+                // Si hay una URL de tamaño completo, usarla
+                window.open(fullSizeUrl, '_blank');
+            } else {
+                // Como respaldo, usar la URL de la miniatura
+                window.open(this.src, '_blank');
+            }
+        });
+    });
+}
+
+// Función para mostrar un indicador de carga
+function showLoadingIndicator(elementId) {
+    const container = document.getElementById(elementId);
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="text-center p-5 w-100">
+            <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-3">Cargando imágenes...</p>
+        </div>
+    `;
 }

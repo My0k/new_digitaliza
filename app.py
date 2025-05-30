@@ -287,14 +287,14 @@ def indexacion():
         logger.error(traceback.format_exc())
         return render_template('error.html', error=str(e))
 
-@app.route('/procesado')
+@app.route('/exportar')
 @login_required
-def procesado():
-    """Vista de procesado de documentos."""
+def exportar():
+    """Vista de exportación de documentos."""
     try:
-        return render_template('procesado.html', active_page='procesado')
+        return render_template('exportar.html', active_page='exportar')
     except Exception as e:
-        logger.error(f"Error al cargar procesado: {str(e)}")
+        logger.error(f"Error al cargar exportación: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return render_template('error.html', error=str(e))
@@ -355,44 +355,41 @@ def upload_file():
 
 @app.route('/refresh')
 @login_required
-def refresh():
-    """Obtiene las imágenes actuales de la carpeta input."""
+def refresh_images():
+    """Actualiza la lista de imágenes en la carpeta de entrada."""
     try:
-        # Determinar si debemos mostrar las imágenes en orden inverso
-        reverse = request.args.get('reverse', 'false').lower() == 'true'
+        # Parámetros opcionales para paginación
+        offset = request.args.get('offset', default=0, type=int)
+        limit = request.args.get('limit', default=None, type=int)
         
-        # Parámetro para decidir si usar miniaturas (por defecto, sí)
-        use_thumbnails = request.args.get('thumbnails', 'true').lower() == 'true'
+        # Obtener todas las imágenes, aplicar paginación si se solicita
+        images = get_latest_images()
         
-        # Obtener tamaño máximo de miniaturas (por defecto 800px)
-        try:
-            max_size = int(request.args.get('max_size', '800'))
-        except ValueError:
-            max_size = 800
+        # Si se especificó un límite, aplicar paginación
+        if limit is not None:
+            images = images[offset:offset+limit]
         
-        # Obtener imágenes de la carpeta input
-        image_paths = get_latest_images()
+        # Transformar imágenes para la interfaz
+        image_data = []
+        for img_path in images:
+            img_info = get_image_data(img_path)
+            if img_info:  # Solo incluir si la imagen se pudo cargar
+                image_data.append(img_info)
         
-        # Ordenar según la preferencia
-        if reverse:
-            image_paths.sort(key=os.path.getmtime)  # Más antiguas primero
-        else:
-            image_paths.sort(key=os.path.getmtime, reverse=True)  # Más recientes primero
-        
-        # Convertir a formato para UI, usando miniaturas
-        image_data = [get_image_data(img, thumbnail=use_thumbnails, max_size=max_size) for img in image_paths]
-        
-        # Forzar recolección de basura después de procesar todas las imágenes
-        import gc
-        gc.collect()
-        
-        return jsonify(image_data)
+        return jsonify({
+            'success': True,
+            'images': image_data,
+            'total': len(get_latest_images()),  # Total de imágenes disponibles
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
     except Exception as e:
-        error_msg = f"Error al refrescar imágenes: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error al refrescar imágenes: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({'error': error_msg}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/check_updates')
 def check_updates():
@@ -1552,6 +1549,38 @@ def generar_pdf_indexado():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/procesar')
+@login_required
+def procesar():
+    """Vista de procesamiento de carpetas."""
+    try:
+        # Obtener la lista de carpetas disponibles
+        base_dir = 'proceso/carpetas'
+        os.makedirs(base_dir, exist_ok=True)
+        
+        # Listar las carpetas existentes
+        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+        folders.sort(key=lambda x: int(x) if x.isdigit() else float('inf'), reverse=True)
+        
+        return render_template('procesar.html', folders=folders, active_page='procesar')
+    except Exception as e:
+        logger.error(f"Error al cargar procesamiento: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return render_template('error.html', error=str(e))
+
+@app.route('/get_original_image')
+@login_required
+def get_original_image():
+    """Sirve la imagen original en lugar de la miniatura."""
+    image_path = request.args.get('path')
+    
+    if not image_path or not os.path.exists(image_path):
+        return "Imagen no encontrada", 404
+    
+    # Servir la imagen directamente (sin procesamiento)
+    return send_file(image_path, mimetype='image/jpeg')
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

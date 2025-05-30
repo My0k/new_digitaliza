@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Procesar{% endblock %}
+
+{% block content %}
+<div class="col-md-9">
+    <div class="card">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Carpetas disponibles</h5>
+            <button id="refreshFoldersBtn" class="btn btn-sm btn-secondary">
+                <i class="fas fa-sync-alt me-1"></i> Actualizar
+            </button>
+        </div>
+        <div class="card-body">
+            {% if folders %}
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Número de Carpeta</th>
+                            <th>Fecha de Creación</th>
+                            <th>Imágenes</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for folder in folders %}
+                        <tr>
+                            <td>{{ folder }}</td>
+                            <td>{{ folder.created_at|default('-') }}</td>
+                            <td>{{ folder.image_count|default('Desconocido') }}</td>
+                            <td><span class="badge bg-secondary">Pendiente</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-primary process-folder-btn" data-folder="{{ folder }}">
+                                    <i class="fas fa-magic me-1"></i> Procesar
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                No hay carpetas disponibles para procesar. Primero debe digitalizar documentos y crear carpetas.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<div class="col-md-3">
+    <div class="card">
+        <div class="card-header bg-dark text-white">
+            <h5 class="card-title mb-0">Opciones de Procesamiento</h5>
+        </div>
+        <div class="card-body">
+            <div class="text-center mb-4">
+                <button id="generateOcrBtn" class="btn btn-success btn-lg w-100">
+                    <i class="fas fa-robot me-2"></i> Generar OCR
+                </button>
+                
+                <p class="text-muted small mt-2">
+                    Este proceso analizará todas las carpetas pendientes y aplicará reconocimiento de texto.
+                </p>
+            </div>
+            
+            <div class="alert alert-warning mt-4">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Aviso</h6>
+                <p class="small mb-0">
+                    El procesamiento OCR puede tardar varios minutos dependiendo de la cantidad de imágenes.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Inicializar para la vista de procesamiento
+        setActiveMode('process');
+        
+        // Configurar botón de actualizar carpetas
+        document.getElementById('refreshFoldersBtn').addEventListener('click', function() {
+            window.location.reload();
+        });
+        
+        // Configurar botón de OCR global
+        document.getElementById('generateOcrBtn').addEventListener('click', function() {
+            Swal.fire({
+                icon: 'info',
+                title: 'En proceso',
+                text: 'La funcionalidad de OCR se está implementando'
+            });
+        });
+        
+        // Configurar botones de procesar carpeta individual
+        document.querySelectorAll('.process-folder-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const folder = this.getAttribute('data-folder');
+                Swal.fire({
+                    icon: 'info',
+                    title: 'En proceso',
+                    text: `La funcionalidad de procesamiento para la carpeta ${folder} se está implementando`
+                });
+            });
+        });
+    });
+</script>
+{% endblock %} 

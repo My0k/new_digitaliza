@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Exportar{% endblock %}
+
+{% block content %}
+<!-- Mismo contenido que tenía procesado.html pero con nombres actualizados -->
+<div class="col-md-9">
+    <div class="card">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Documentos PDF Generados</h5>
+            <button id="refreshPdfsBtn" class="btn btn-sm btn-secondary">
+                <i class="fas fa-sync-alt me-1"></i> Actualizar
+            </button>
+        </div>
+        <div class="card-body">
+            <!-- Resto del contenido... -->
+        </div>
+    </div>
+</div>
+<div class="col-md-3">
+    <div class="card">
+        <div class="card-header bg-dark text-white">
+            <h5 class="card-title mb-0">Opciones de Exportación</h5>
+        </div>
+        <div class="card-body">
+            <!-- Controles actualizados... -->
+            <div class="text-center mb-4" id="exportControls">
+                <button id="generateReportBtn" class="btn btn-info btn-lg w-100 mb-3">
+                    <i class="fas fa-file-excel me-2"></i> Generar Cuadratura
+                </button>
+                
+                <button id="exportDataBtn" class="btn btn-primary btn-lg w-100">
+                    <i class="fas fa-download me-2"></i> Exportar Datos
+                </button>
+            </div>
+            
+            <div class="alert alert-info mt-4">
+                <h6><i class="fas fa-info-circle me-2"></i>Información</h6>
+                <p class="small mb-0">
+                    En esta sección puede descargar los PDFs generados y exportar reportes de los documentos procesados.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Iniciar para la vista de exportación
+        setActiveMode('export');
+        loadPdfs();
+        
+        // Configurar botón de refrescar PDFs
+        document.getElementById('refreshPdfsBtn').addEventListener('click', loadPdfs);
+        
+        // Configurar botones de reportes
+        document.getElementById('generateReportBtn').addEventListener('click', generateReport);
+        document.getElementById('exportDataBtn').addEventListener('click', exportData);
+    });
+</script>
+{% endblock %} 
