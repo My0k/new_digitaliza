@@ -12,6 +12,9 @@ from pdf2image import convert_from_path
 import fitz  # PyMuPDF
 import io
 import shutil
+import multiprocessing
+import time
+import threading
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -412,6 +415,7 @@ def generar_pdf_con_ocr(folder_id):
     """
     Genera un PDF con OCR a partir de las imágenes en una carpeta específica.
     Primero crea un PDF básico y luego aplica OCR usando ocrmypdf.
+    Utiliza múltiples núcleos para optimizar el rendimiento.
     
     Args:
         folder_id (str): Identificador de la carpeta a procesar
@@ -420,20 +424,29 @@ def generar_pdf_con_ocr(folder_id):
         dict: Diccionario con el resultado de la operación
     """
     try:
+        print(f"=== Iniciando generación de PDF con OCR para carpeta {folder_id} ===")
+        start_time = time.time()
+        
         # Primero generamos el PDF básico
+        print(f"Paso 1/3: Generando PDF básico para carpeta {folder_id}...")
         result = generar_pdf_simple(folder_id)
         
         if not result['success']:
+            print(f"Error al generar PDF básico: {result.get('error', 'Error desconocido')}")
             return result  # Si falla la generación del PDF básico, retornamos el error
+        
+        print(f"PDF básico generado correctamente: {result['pdf_path']}")
         
         # Rutas para el PDF generado y el PDF con OCR
         pdf_path = result['pdf_path']
         ocr_pdf_path = pdf_path.replace('.pdf', '_ocr.pdf')
         
         # Verificar que ocrmypdf está instalado
+        print(f"Paso 2/3: Verificando instalación de ocrmypdf...")
         if not check_ocrmypdf_installed():
-            logger.warning("ocrmypdf no está instalado. Intentando instalarlo...")
+            print("ocrmypdf no está instalado. Intentando instalarlo...")
             if not install_ocrmypdf():
+                print("No se pudo instalar ocrmypdf. Se utilizará el PDF básico.")
                 return {
                     'success': False,
                     'error': "No se pudo instalar ocrmypdf para el procesamiento OCR.",
@@ -442,22 +455,38 @@ def generar_pdf_con_ocr(folder_id):
                 }
         
         # Aplicar OCR al PDF básico
+        print(f"Paso 3/3: Aplicando OCR al PDF...")
         logger.info(f"Aplicando OCR al PDF de la carpeta {folder_id}...")
+        
+        ocr_start_time = time.time()
         success = process_pdf_with_ocr(pdf_path, ocr_pdf_path)
+        ocr_duration = time.time() - ocr_start_time
+        minutes, seconds = divmod(int(ocr_duration), 60)
         
         if success:
             # Si el OCR fue exitoso, reemplazamos el PDF original con el OCR
             if os.path.exists(ocr_pdf_path):
+                print(f"OCR completado en {minutes}m {seconds}s. Reemplazando PDF original...")
                 os.replace(ocr_pdf_path, pdf_path)
                 logger.info(f"PDF con OCR generado exitosamente y reemplazado: {pdf_path}")
+                
+                total_duration = time.time() - start_time
+                total_min, total_sec = divmod(int(total_duration), 60)
+                print(f"=== Proceso completado en {total_min}m {total_sec}s ===")
+                
+                # Actualizar carpetas.csv
+                print("Registrando carpeta procesada en carpetas.csv...")
+                
                 return {
                     'success': True,
                     'message': f"PDF con OCR generado: {pdf_path}",
                     'pdf_path': pdf_path,
                     'folder_id': folder_id,
-                    'ocr_applied': True
+                    'ocr_applied': True,
+                    'processing_time': f"{minutes}m {seconds}s"
                 }
             else:
+                print(f"Error: El archivo OCR no existe después del procesamiento: {ocr_pdf_path}")
                 logger.warning(f"El archivo OCR no existe después del procesamiento: {ocr_pdf_path}")
                 return {
                     'success': True,
@@ -467,6 +496,7 @@ def generar_pdf_con_ocr(folder_id):
                     'ocr_applied': False
                 }
         else:
+            print(f"Error al aplicar OCR. Se utilizará el PDF básico.")
             logger.error(f"Error al aplicar OCR al PDF {pdf_path}")
             return {
                 'success': True,  # Consideramos éxito parcial ya que el PDF básico se generó
@@ -480,8 +510,11 @@ def generar_pdf_con_ocr(folder_id):
     except Exception as e:
         error_msg = f"Error al generar PDF con OCR para carpeta {folder_id}: {str(e)}"
         logger.error(error_msg)
+        print(f"Error: {error_msg}")
         import traceback
-        logger.error(traceback.format_exc())
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
+        print(error_trace)
         return {
             'success': False,
             'error': error_msg
@@ -532,7 +565,7 @@ def install_ocrmypdf():
 
 def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, clean=True, optimize=True):
     """
-    Procesa un archivo PDF y genera una versión con OCR.
+    Procesa un archivo PDF y genera una versión con OCR utilizando múltiples núcleos.
     
     Args:
         input_file: Ruta del archivo PDF de entrada
@@ -548,6 +581,11 @@ def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, c
     if not os.path.exists(input_file):
         logger.error(f"Error: El archivo {input_file} no existe.")
         return False
+    
+    # Determinar el número de núcleos a utilizar (todos menos uno)
+    cpu_count = max(1, multiprocessing.cpu_count() - 1)
+    logger.info(f"Utilizando {cpu_count} núcleos para el procesamiento OCR")
+    print(f"Utilizando {cpu_count} núcleos para el procesamiento OCR")
     
     # Preparar comando con opciones
     cmd = ["ocrmypdf"]
@@ -565,6 +603,10 @@ def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, c
     # Forzar OCR aunque el PDF ya tenga texto
     cmd.append("--force-ocr")
     
+    # Configurar procesamiento paralelo
+    cmd.append("--jobs")
+    cmd.append(str(cpu_count))
+    
     # Especificar idioma
     cmd.extend(["-l", language])
     
@@ -572,19 +614,81 @@ def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, c
     cmd.extend([str(input_file), str(output_file)])
     
     try:
-        logger.info(f"Procesando {input_file} con OCR...")
-        process = subprocess.run(
+        logger.info(f"Iniciando procesamiento OCR para {input_file}...")
+        print(f"Iniciando procesamiento OCR para {input_file}...")
+        
+        # Iniciar proceso
+        process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True
+            bufsize=1,
+            universal_newlines=True
         )
-        logger.info(f"OCR aplicado exitosamente. Guardado en {output_file}")
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error al procesar OCR: {e}")
-        logger.error(f"Detalles: {e.stderr}")
+        
+        # Función para monitorear el progreso
+        def monitor_progress():
+            print(f"Monitoreando proceso OCR (PID: {process.pid})...")
+            start_time = time.time()
+            last_output_time = start_time
+            
+            while process.poll() is None:
+                elapsed = time.time() - start_time
+                time_since_last_output = time.time() - last_output_time
+                
+                # Mostrar tiempo transcurrido cada 30 segundos o si no hay salida por más de 1 minuto
+                if elapsed % 30 < 1 or time_since_last_output > 60:
+                    minutes, seconds = divmod(int(elapsed), 60)
+                    print(f"OCR en progreso: {minutes}m {seconds}s transcurridos...")
+                    last_output_time = time.time()
+                
+                time.sleep(1)
+        
+        # Iniciar monitoreo en un hilo separado
+        monitor_thread = threading.Thread(target=monitor_progress)
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        # Leer salida del proceso en tiempo real
+        for line in process.stdout:
+            line = line.strip()
+            if line:
+                print(f"OCR: {line}")
+                last_output_time = time.time()
+        
+        # Esperar a que termine el proceso
+        stdout, stderr = process.communicate()
+        
+        # Analizar resultado
+        if process.returncode != 0:
+            logger.error(f"Error en el procesamiento OCR (código {process.returncode})")
+            if stderr:
+                logger.error(f"Detalles del error: {stderr}")
+                print(f"Error OCR: {stderr}")
+            return False
+        
+        # Verificar que el archivo existe
+        if os.path.exists(output_file):
+            file_size = os.path.getsize(output_file)
+            logger.info(f"OCR aplicado exitosamente. PDF generado: {output_file} ({file_size} bytes)")
+            print(f"OCR aplicado exitosamente. PDF generado: {output_file} ({file_size} bytes)")
+            return True
+        else:
+            logger.error(f"El archivo de salida {output_file} no fue creado")
+            print(f"Error: El archivo de salida {output_file} no fue creado")
+            return False
+            
+    except subprocess.SubprocessError as e:
+        logger.error(f"Error al ejecutar ocrmypdf: {str(e)}")
+        print(f"Error al ejecutar ocrmypdf: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Error inesperado en el procesamiento OCR: {str(e)}")
+        print(f"Error inesperado en el procesamiento OCR: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        print(traceback.format_exc())
         return False
 
 if __name__ == "__main__":
