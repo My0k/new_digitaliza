@@ -1310,18 +1310,15 @@ function extractProjectCode() {
         });
 }
 
-// Modificar la función de indexación para extraer solo el ID de la carpeta
+// Modificar la función para extraer solo el ID de la carpeta
 function generateIndexedPdf() {
     // Obtener los valores del formulario
     const folderSelect = document.getElementById('folderSelect');
     const folderId = folderSelect.value;
     
-    // Obtener el nombre/ID de la carpeta y extraer solo el ID
-    let folderName = folderSelect.options[folderSelect.selectedIndex].text;
-    // Eliminar el prefijo "Carpeta " si existe
-    if (folderName.startsWith("Carpeta ")) {
-        folderName = folderName.replace("Carpeta ", "");
-    }
+    // Extraer solo el ID de la carpeta (sin el prefijo "Carpeta ")
+    const folderFullName = folderSelect.options[folderSelect.selectedIndex].text;
+    const folderName = folderFullName.replace('Carpeta ', ''); // Eliminar el prefijo "Carpeta "
     
     const projectCode = document.getElementById('projectCode').value;
     const boxNumber = document.getElementById('boxNumber').value;
@@ -1361,7 +1358,7 @@ function generateIndexedPdf() {
     // Preparar datos para enviar
     const formData = new FormData();
     formData.append('folder_id', folderId);
-    formData.append('folder_name', folderName); // Enviar el nombre sin el prefijo
+    formData.append('folder_name', folderName); // Enviar solo el ID de la carpeta
     formData.append('project_code', projectCode);
     formData.append('box_number', boxNumber);
     formData.append('document_present', documentPresent);

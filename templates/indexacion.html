@@ -75,9 +75,62 @@
         setActiveMode('indexation');
         loadFolders();
         
+        // Actualización para mostrar mensaje cuando no hay carpetas por indexar
+        document.getElementById('folderSelect').addEventListener('change', function() {
+            if (this.options.length <= 1) {
+                document.getElementById('folderImageGrid').innerHTML = 
+                    '<div class="col-12"><div class="alert alert-info">No hay carpetas pendientes por indexar.</div></div>';
+            }
+        });
+        
         document.getElementById('indexDocumentBtn').addEventListener('click', function() {
             generateIndexedPdf();
         });
     });
+    
+    // Función para cargar carpetas no indexadas
+    function loadFolders() {
+        // Mostrar indicador de carga en el selector de carpetas
+        const folderSelect = document.getElementById('folderSelect');
+        if (folderSelect) {
+            folderSelect.innerHTML = '<option value="">Cargando carpetas...</option>';
+            folderSelect.disabled = true;
+        }
+        
+        // Mostrar indicador en el grid de imágenes
+        document.getElementById('folderImageGrid').innerHTML = 
+            '<div class="col-12 text-center"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Cargando carpetas...</p></div>';
+        
+        // Llamar al endpoint modificado que filtra carpetas ya indexadas
+        fetch('/get_folders?exclude_indexed=true')
+            .then(response => response.json())
+            .then(data => {
+                updateFolderSelect(data.folders, data.current_folder);
+                
+                // Mostrar mensaje apropiado si no hay carpetas
+                if (data.folders && data.folders.length > 0) {
+                    if (data.current_folder) {
+                        updateFolderImageGrid(data.images);
+                    } else {
+                        document.getElementById('folderImageGrid').innerHTML = 
+                            '<div class="col-12"><div class="alert alert-info">Seleccione una carpeta para ver sus imágenes</div></div>';
+                    }
+                } else {
+                    document.getElementById('folderImageGrid').innerHTML = 
+                        '<div class="col-12"><div class="alert alert-info">No hay carpetas pendientes por indexar.</div></div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error al cargar carpetas:', error);
+                document.getElementById('folderImageGrid').innerHTML = 
+                    '<div class="col-12"><div class="alert alert-danger">Error al cargar carpetas. Por favor, intente nuevamente.</div></div>';
+                
+                // Restaurar selector de carpetas
+                if (folderSelect) {
+                    folderSelect.innerHTML = '<option value="">Error al cargar carpetas</option>';
+                    folderSelect.disabled = false;
+                }
+            });
+    }
 </script>
 {% endblock %} 

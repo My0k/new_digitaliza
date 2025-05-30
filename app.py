@@ -1330,6 +1330,29 @@ def get_folders():
         folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
         folders.sort(key=lambda x: int(x) if x.isdigit() else float('inf'))
         
+        # Verificar si debemos excluir carpetas ya indexadas
+        exclude_indexed = request.args.get('exclude_indexed', 'false').lower() == 'true'
+        
+        # Si se solicita excluir carpetas indexadas, cargar la lista de carpetas indexadas
+        if exclude_indexed:
+            indexed_folders = []
+            carpetas_csv = 'carpetas.csv'
+            
+            if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
+                try:
+                    with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
+                        reader = csv.reader(csvfile)
+                        next(reader)  # Saltar encabezados
+                        for row in reader:
+                            if row and row[0].strip():  # Asegurarse de que la fila no esté vacía
+                                indexed_folders.append(row[0].strip())
+                except Exception as csv_err:
+                    logger.error(f"Error al leer carpetas.csv: {str(csv_err)}")
+            
+            # Filtrar las carpetas ya indexadas
+            folders = [f for f in folders if f not in indexed_folders]
+            logger.info(f"Mostrando {len(folders)} carpetas no indexadas de un total de {len(folders) + len(indexed_folders)}")
+        
         # Determinar la carpeta actual (del parámetro o la primera disponible)
         folder_id = request.args.get('folder', folders[0] if folders else None)
         
@@ -1436,16 +1459,13 @@ def actualizar_indexacion():
         box_number = request.form.get('box_number', 'N/A')
         document_present = request.form.get('document_present', 'NO')
         observation = request.form.get('observation', '')
-        folder_name = request.form.get('folder_name', '')  # Nombre de la carpeta
+        folder_name = request.form.get('folder_name', '')  # Nombre de la carpeta (ya sin el prefijo "Carpeta ")
         
-        # Asegurarse de que folder_name no contenga el prefijo "Carpeta "
-        if folder_name and folder_name.startswith("Carpeta "):
-            folder_name = folder_name.replace("Carpeta ", "")
-            
         # Validar que exista el código de proyecto
         if not project_code:
             return jsonify({'success': False, 'error': 'No se proporcionó código de proyecto'}), 400
         
+        # 1. Actualizar db_input.csv
         # Ruta al archivo CSV
         csv_path = 'db_input.csv'
         
@@ -1488,7 +1508,7 @@ def actualizar_indexacion():
                         if indexado_index >= 0:
                             row[indexado_index] = 'SI'  # INDEXADO
                         
-                        # Guardar el nombre de la carpeta
+                        # Guardar el nombre de la carpeta (sin prefijo "Carpeta ")
                         row[carpeta_index] = folder_name
                         
                     rows.append(row)
@@ -1507,6 +1527,37 @@ def actualizar_indexacion():
             writer = csv.writer(csvfile)
             writer.writerow(headers)
             writer.writerows(rows)
+        
+        # 2. Actualizar carpetas.csv
+        carpetas_csv = 'carpetas.csv'
+        carpetas_rows = []
+        carpeta_found = False
+        
+        # Verificar si el archivo existe y tiene contenido
+        if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
+            with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                carpetas_headers = next(reader)  # Guardar encabezados
+                
+                # Leer filas existentes y buscar si la carpeta ya está registrada
+                for row in reader:
+                    if row and row[0] == folder_name:
+                        carpeta_found = True
+                    carpetas_rows.append(row)
+                
+        else:
+            # Si el archivo no existe o está vacío, crear encabezados
+            carpetas_headers = ['carpeta_indexada']
+        
+        # Si la carpeta no está registrada, añadirla
+        if not carpeta_found:
+            carpetas_rows.append([folder_name])
+        
+        # Escribir el archivo carpetas.csv actualizado
+        with open(carpetas_csv, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(carpetas_headers)
+            writer.writerows(carpetas_rows)
         
         return jsonify({
             'success': True,
