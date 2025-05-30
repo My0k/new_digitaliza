@@ -1576,20 +1576,73 @@ def actualizar_indexacion():
 def procesar():
     """Vista de procesamiento de carpetas."""
     try:
-        # Obtener la lista de carpetas disponibles
-        base_dir = 'proceso/carpetas'
+        # Directorio base de carpetas
+        base_dir = os.path.join('proceso', 'carpetas')
         os.makedirs(base_dir, exist_ok=True)
         
-        # Listar las carpetas existentes
-        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
-        folders.sort(key=lambda x: int(x) if x.isdigit() else float('inf'), reverse=True)
+        # Obtener todas las carpetas (directorios)
+        all_folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
         
-        return render_template('procesar.html', folders=folders, active_page='procesar')
+        # Obtener carpetas que ya tienen OCR generado
+        ocr_generated_folders = []
+        carpetas_csv = 'carpetas.csv'
+        
+        if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
+            try:
+                with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader)  # Leer encabezados
+                    
+                    # Verificar si existe la columna ocr_generado
+                    if 'ocr_generado' in headers:
+                        ocr_index = headers.index('ocr_generado')
+                        
+                        # Leer valores de la columna ocr_generado
+                        for row in reader:
+                            if row and len(row) > ocr_index and row[ocr_index].strip():
+                                ocr_generated_folders.append(row[ocr_index].strip())
+            except Exception as e:
+                logger.error(f"Error al leer carpetas.csv: {str(e)}")
+        
+        # Filtrar carpetas ya procesadas
+        folders = [f for f in all_folders if f not in ocr_generated_folders]
+        
+        # Crear una clase para representar una carpeta con un __str__ adecuado
+        class FolderInfo:
+            def __init__(self, id, created_at, image_count):
+                self.id = id
+                self.name = id
+                self.created_at = created_at
+                self.image_count = image_count
+            
+            def __str__(self):
+                return self.id
+        
+        # Filtrar carpetas sin imágenes y crear objetos FolderInfo
+        folders_with_info = []
+        for folder in folders:
+            folder_path = os.path.join(base_dir, folder)
+            image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
+            
+            # Solo incluir carpetas con imágenes
+            if image_files:
+                # Obtener información de la carpeta
+                creation_time = datetime.fromtimestamp(os.path.getctime(folder_path)).strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Crear objeto de carpeta con información adicional
+                folder_info = FolderInfo(
+                    id=folder,
+                    created_at=creation_time,
+                    image_count=len(image_files)
+                )
+                
+                # Agregar a la lista de carpetas
+                folders_with_info.append(folder_info)
+        
+        return render_template('procesar.html', folders=folders_with_info)
     except Exception as e:
-        logger.error(f"Error al cargar procesamiento: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return render_template('error.html', error=str(e))
+        logger.error(f"Error en la vista procesar: {str(e)}")
+        return render_template('error.html', message="Error al cargar la página de procesamiento.")
 
 @app.route('/get_original_image')
 @login_required
@@ -1644,6 +1697,150 @@ def move_images_to_folder(folder_path):
         import traceback
         logger.error(traceback.format_exc())
         return 0
+
+@app.route('/process_folder', methods=['POST'])
+@login_required
+def process_folder():
+    """Procesa una carpeta específica con OCR."""
+    try:
+        # Obtener el ID de la carpeta del body JSON
+        data = request.json
+        folder_id = data.get('folder_id')
+        
+        if not folder_id:
+            return jsonify({
+                'success': False,
+                'error': "No se especificó una carpeta para procesar"
+            }), 400
+        
+        # Importar la función desde el módulo
+        from functions.generar_ocr import generar_pdf_simple
+        
+        # Procesar la carpeta
+        result = generar_pdf_simple(folder_id)
+        
+        return jsonify(result)
+    except Exception as e:
+        error_msg = f"Error al procesar carpeta: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+@app.route('/process_all_folders', methods=['POST'])
+@login_required
+def process_all_folders():
+    """Procesa todas las carpetas pendientes generando PDFs."""
+    try:
+        # Obtener lista de carpetas
+        base_dir = os.path.join('proceso', 'carpetas')
+        os.makedirs(base_dir, exist_ok=True)
+        
+        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+        
+        if not folders:
+            return jsonify({
+                'success': False,
+                'error': "No hay carpetas para procesar"
+            }), 404
+        
+        # Cargar carpetas que ya tienen OCR generado desde carpetas.csv
+        ocr_generated_folders = []
+        carpetas_csv = 'carpetas.csv'
+        
+        if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
+            try:
+                import csv
+                with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader)  # Leer encabezados
+                    
+                    # Verificar si existe la columna ocr_generado
+                    if 'ocr_generado' in headers:
+                        ocr_index = headers.index('ocr_generado')
+                        
+                        # Leer valores de la columna ocr_generado
+                        for row in reader:
+                            if row and len(row) > ocr_index and row[ocr_index].strip():
+                                ocr_generated_folders.append(row[ocr_index].strip())
+                                
+                logger.info(f"Se encontraron {len(ocr_generated_folders)} carpetas ya procesadas en carpetas.csv")
+            except Exception as csv_err:
+                logger.error(f"Error al leer carpetas.csv: {str(csv_err)}")
+        
+        # Filtrar carpetas ya procesadas
+        folders_to_process = [f for f in folders if f not in ocr_generated_folders]
+        
+        if not folders_to_process:
+            return jsonify({
+                'success': False,
+                'error': "Todas las carpetas ya han sido procesadas"
+            }), 200
+        
+        # Importar la función desde el módulo
+        from functions.generar_ocr import generar_pdf_simple
+        
+        # Procesar cada carpeta, verificando que tengan imágenes
+        results = []
+        processed_count = 0
+        skipped_no_images = 0
+        
+        for folder in folders_to_process:
+            # Verificar si la carpeta tiene imágenes JPG
+            folder_path = os.path.join(base_dir, folder)
+            image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
+            
+            if not image_files:
+                logger.info(f"Carpeta {folder} no tiene imágenes JPG, se omite")
+                skipped_no_images += 1
+                continue
+            
+            # Procesar carpeta
+            result = generar_pdf_simple(folder)
+            results.append(result)
+            
+            if result['success']:
+                processed_count += 1
+        
+        # Preparar respuesta
+        return jsonify({
+            'success': True,
+            'total_folders': len(folders),
+            'already_processed': len(ocr_generated_folders),
+            'eligible_for_processing': len(folders_to_process),
+            'skipped_no_images': skipped_no_images,
+            'processed_successfully': processed_count,
+            'error_count': len(results) - processed_count,
+            'details': results
+        })
+        
+    except Exception as e:
+        error_msg = f"Error al procesar todas las carpetas: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+@app.route('/view_pdf')
+@login_required
+def view_pdf():
+    """Muestra un archivo PDF."""
+    try:
+        pdf_path = request.args.get('path')
+        
+        if not pdf_path or not os.path.exists(pdf_path):
+            return "PDF no encontrado", 404
+        
+        return send_file(pdf_path, mimetype='application/pdf')
+    except Exception as e:
+        logger.error(f"Error al mostrar PDF: {str(e)}")
+        return "Error al mostrar el PDF", 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

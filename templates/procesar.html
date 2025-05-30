@@ -27,12 +27,12 @@
                     <tbody>
                         {% for folder in folders %}
                         <tr>
-                            <td>{{ folder }}</td>
+                            <td>{{ folder.id }}</td>
                             <td>{{ folder.created_at|default('-') }}</td>
                             <td>{{ folder.image_count|default('Desconocido') }}</td>
                             <td><span class="badge bg-secondary">Pendiente</span></td>
                             <td>
-                                <button class="btn btn-sm btn-primary process-folder-btn" data-folder="{{ folder }}">
+                                <button class="btn btn-sm btn-primary process-folder-btn" data-folder="{{ folder.id }}">
                                     <i class="fas fa-magic me-1"></i> Procesar
                                 </button>
                             </td>
@@ -56,8 +56,8 @@
         </div>
         <div class="card-body">
             <div class="text-center mb-4">
-                <button id="generateOcrBtn" class="btn btn-success btn-lg w-100">
-                    <i class="fas fa-robot me-2"></i> Generar OCR
+                <button id="processAllBtn" class="btn btn-success btn-lg w-100">
+                    <i class="fas fa-robot me-2"></i> Procesar todos
                 </button>
                 
                 <p class="text-muted small mt-2">
@@ -74,6 +74,41 @@
         </div>
     </div>
 </div>
+
+<!-- Modal de Procesamiento -->
+<div class="modal fade" id="processingModal" tabindex="-1" aria-labelledby="processingModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="processingModalLabel">Procesando...</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Procesando...</span>
+                </div>
+                <p id="processingMessage">Aplicando OCR a las imágenes, esto puede tardar unos minutos...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Resultados -->
+<div class="modal fade" id="resultsModal" tabindex="-1" aria-labelledby="resultsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resultsModalLabel">Resultados del Procesamiento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="resultsContent">
+                <!-- Contenido dinámico de los resultados -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -82,17 +117,108 @@
         // Inicializar para la vista de procesamiento
         setActiveMode('process');
         
+        // Inicializar modals de Bootstrap
+        const processingModal = new bootstrap.Modal(document.getElementById('processingModal'));
+        const resultsModal = new bootstrap.Modal(document.getElementById('resultsModal'));
+        
         // Configurar botón de actualizar carpetas
         document.getElementById('refreshFoldersBtn').addEventListener('click', function() {
             window.location.reload();
         });
         
-        // Configurar botón de OCR global
-        document.getElementById('generateOcrBtn').addEventListener('click', function() {
-            Swal.fire({
-                icon: 'info',
-                title: 'En proceso',
-                text: 'La funcionalidad de OCR se está implementando'
+        // Configurar botón de Procesar todos
+        document.getElementById('processAllBtn').addEventListener('click', function() {
+            // Mostrar modal de procesamiento
+            document.getElementById('processingMessage').textContent = 'Procesando todas las carpetas pendientes, esto puede tardar varios minutos...';
+            processingModal.show();
+            
+            // Llamar al endpoint para procesar todas las carpetas
+            fetch('/process_all_folders', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Ocultar modal de procesamiento
+                processingModal.hide();
+                
+                // Preparar contenido para el modal de resultados
+                let resultsHtml = '';
+                
+                if (data.success) {
+                    resultsHtml = `
+                        <div class="alert alert-success">
+                            <h6>Procesamiento Completado</h6>
+                            <p>Se han procesado las carpetas pendientes.</p>
+                        </div>
+                        
+                        <div class="card mb-3">
+                            <div class="card-header">Resumen del Procesamiento</div>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Total de carpetas:</span>
+                                    <strong>${data.total_folders}</strong>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Carpetas ya procesadas anteriormente:</span>
+                                    <strong>${data.already_processed}</strong>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Carpetas sin imágenes (omitidas):</span>
+                                    <strong>${data.skipped_no_images}</strong>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Carpetas procesadas correctamente:</span>
+                                    <strong>${data.processed_successfully}</strong>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Carpetas con errores:</span>
+                                    <strong>${data.error_count}</strong>
+                                </li>
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // Mostrar detalles de errores si los hay
+                    if (data.error_count > 0) {
+                        resultsHtml += `
+                            <div class="alert alert-warning">
+                                <h6>Algunas carpetas no se pudieron procesar</h6>
+                                <p>Revise los detalles para más información.</p>
+                            </div>
+                        `;
+                    }
+                    
+                } else {
+                    resultsHtml = `
+                        <div class="alert alert-warning">
+                            <h6>No se procesaron carpetas</h6>
+                            <p>${data.error}</p>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('resultsContent').innerHTML = resultsHtml;
+                resultsModal.show();
+                
+                // Recargar la página después de cerrar el modal de resultados
+                document.getElementById('resultsModal').addEventListener('hidden.bs.modal', function () {
+                    window.location.reload();
+                });
+            })
+            .catch(error => {
+                processingModal.hide();
+                console.error('Error:', error);
+                
+                document.getElementById('resultsContent').innerHTML = `
+                    <div class="alert alert-danger">
+                        <h6>Error en la solicitud</h6>
+                        <p>No se pudo completar la operación. Por favor, inténtelo nuevamente.</p>
+                    </div>
+                `;
+                resultsModal.show();
             });
         });
         
@@ -100,10 +226,85 @@
         document.querySelectorAll('.process-folder-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const folder = this.getAttribute('data-folder');
-                Swal.fire({
-                    icon: 'info',
-                    title: 'En proceso',
-                    text: `La funcionalidad de procesamiento para la carpeta ${folder} se está implementando`
+                const originalBtnText = this.innerHTML;
+                const btn = this;
+                
+                // Deshabilitar botón y mostrar indicador de carga
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
+                
+                // Mostrar modal de procesamiento
+                document.getElementById('processingMessage').textContent = `Procesando carpeta ${folder}, esto puede tardar unos minutos...`;
+                processingModal.show();
+                
+                // Llamar al endpoint para procesar la carpeta
+                fetch('/process_folder', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ folder_id: folder })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Ocultar modal de procesamiento
+                    processingModal.hide();
+                    
+                    // Preparar contenido para el modal de resultados
+                    let resultsHtml = '';
+                    
+                    if (data.success) {
+                        resultsHtml = `
+                            <div class="alert alert-success">
+                                <h6>Procesamiento Completado</h6>
+                                <p>${data.message}</p>
+                                <p>El PDF generado se encuentra en: ${data.pdf_path}</p>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <a href="/view_pdf?path=${encodeURIComponent(data.pdf_path)}" target="_blank" class="btn btn-primary">
+                                    <i class="fas fa-file-pdf me-2"></i> Ver PDF
+                                </a>
+                            </div>
+                        `;
+                    } else {
+                        resultsHtml = `
+                            <div class="alert alert-danger">
+                                <h6>Error en el Procesamiento</h6>
+                                <p>${data.error}</p>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('resultsContent').innerHTML = resultsHtml;
+                    resultsModal.show();
+                    
+                    // Restaurar botón
+                    btn.disabled = false;
+                    btn.innerHTML = originalBtnText;
+                    
+                    // Agregar evento para recargar la página después de cerrar el modal
+                    if (data.success) {
+                        document.getElementById('resultsModal').addEventListener('hidden.bs.modal', function () {
+                            window.location.reload();
+                        }, { once: true }); // El evento se activa solo una vez
+                    }
+                })
+                .catch(error => {
+                    processingModal.hide();
+                    console.error('Error:', error);
+                    
+                    document.getElementById('resultsContent').innerHTML = `
+                        <div class="alert alert-danger">
+                            <h6>Error en la solicitud</h6>
+                            <p>No se pudo completar la operación. Por favor, inténtelo nuevamente.</p>
+                        </div>
+                    `;
+                    resultsModal.show();
+                    
+                    // Restaurar botón
+                    btn.disabled = false;
+                    btn.innerHTML = originalBtnText;
                 });
             });
         });

@@ -132,5 +132,70 @@
                 }
             });
     }
+    
+    // Sobrescribir la función generateIndexedPdf para incluir recarga de página
+    function generateIndexedPdf() {
+        // Obtener valores del formulario
+        const projectCode = document.getElementById('projectCode').value.trim();
+        const boxNumber = document.getElementById('boxNumber').value.trim();
+        const documentPresent = document.querySelector('input[name="documentPresent"]:checked').value;
+        const observation = document.getElementById('observation').value.trim();
+        const folderSelect = document.getElementById('folderSelect');
+        const folderId = folderSelect.value;
+        
+        // Validaciones
+        if (!projectCode) {
+            alert('Por favor, ingrese un código de proyecto válido');
+            return;
+        }
+        
+        if (!folderId) {
+            alert('Por favor, seleccione una carpeta');
+            return;
+        }
+        
+        // Mostrar indicador de carga
+        const indexBtn = document.getElementById('indexDocumentBtn');
+        const originalBtnText = indexBtn.innerHTML;
+        indexBtn.disabled = true;
+        indexBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
+        
+        // Crear FormData para enviar
+        const formData = new FormData();
+        formData.append('project_code', projectCode);
+        formData.append('box_number', boxNumber);
+        formData.append('document_present', documentPresent);
+        formData.append('observation', observation);
+        formData.append('folder_id', folderId);
+        formData.append('folder_name', folderId); // Usar el ID como nombre
+        
+        // Realizar la solicitud para indexar
+        fetch('/actualizar_indexacion', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Documento indexado correctamente');
+                
+                // Recargar la página después de indexar exitosamente
+                window.location.reload();
+            } else {
+                alert('Error: ' + data.error);
+                // Restaurar botón
+                indexBtn.disabled = false;
+                indexBtn.innerHTML = originalBtnText;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al procesar la solicitud');
+            
+            // Restaurar botón
+            indexBtn.disabled = false;
+            indexBtn.innerHTML = originalBtnText;
+        });
+    }
 </script>
 {% endblock %} 
