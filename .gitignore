@@ -1,0 +1,63 @@
+# Directorios de procesamiento
+proceso/
+input/
+miniaturas/
+por_procesar/
+pdf_procesado/
+__pycache__/
+venv/
+.venv/
+
+# Archivos de base de datos
+*.db
+*.sqlite
+*.sqlite3
+db_input.csv
+
+# Archivos de caché
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Archivos de ambiente
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Archivos de configuración IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Archivos multimedia
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.pdf
+*.mp4
+*.avi
+
+# Archivos de log
+*.log
+logs/
+
+# Archivos temporales
+temp/
+tmp/
+.temp/
+.tmp/
+
+# Archivos generados
+*.xlsx
+*.xls
+*.csv
+!requirements.txt 
