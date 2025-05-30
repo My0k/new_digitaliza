@@ -21,6 +21,8 @@ from reportlab.lib.pagesizes import letter
 import functools
 import pandas as pd
 from io import BytesIO
+import hashlib
+from functions.indexacion import generate_folder_name, create_new_folder
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
@@ -1286,56 +1288,34 @@ def generate_cuadratura():
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
 
-@app.route('/generar_carpeta')
+@app.route('/generar_carpeta', methods=['POST'])
 @login_required
 def generar_carpeta():
-    """Genera una carpeta numerada y mueve las imágenes de input a ella."""
+    """Crea una carpeta con hash MD5 y mueve las imágenes actuales a ella."""
     try:
-        # Verificar que hay imágenes para mover
-        images = get_latest_images()
-        if not images:
-            return jsonify({
-                'success': False,
-                'error': 'No hay imágenes para mover'
-            }), 400
+        # Crear carpeta con nombre hash MD5
+        result = create_new_folder()
         
-        # Crear directorio base si no existe
-        base_dir = 'proceso/carpetas'
-        os.makedirs(base_dir, exist_ok=True)
+        if not result['success']:
+            return jsonify(result), 500
+            
+        folder_name = result['folder_name']
+        folder_path = result['folder_path']
         
-        # Determinar el siguiente número de carpeta
-        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
-        numeric_folders = [int(f) for f in folders if f.isdigit()]
-        next_folder = str(max(numeric_folders, default=0) + 1).zfill(6)
-        
-        # Crear la nueva carpeta
-        new_folder_path = os.path.join(base_dir, next_folder)
-        os.makedirs(new_folder_path, exist_ok=True)
-        
-        # Mover las imágenes a la nueva carpeta
-        files_moved = 0
-        for img_path in images:
-            filename = os.path.basename(img_path)
-            dest_path = os.path.join(new_folder_path, filename)
-            shutil.move(img_path, dest_path)
-            files_moved += 1
-        
-        logger.info(f"Carpeta {next_folder} creada con {files_moved} imágenes")
+        # Mover imágenes a la carpeta
+        moved_count = move_images_to_folder(folder_path)
         
         return jsonify({
-            'success': True,
-            'folder': next_folder,
-            'files_moved': files_moved
-        })
+            'success': True, 
+            'folder_name': folder_name,
+            'image_count': moved_count
+        }), 200
     except Exception as e:
         error_msg = f"Error al generar carpeta: {str(e)}"
         logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': error_msg
-        }), 500
+        return jsonify({'success': False, 'error': error_msg}), 500
 
 @app.route('/get_folders')
 @login_required
@@ -1456,7 +1436,12 @@ def actualizar_indexacion():
         box_number = request.form.get('box_number', 'N/A')
         document_present = request.form.get('document_present', 'NO')
         observation = request.form.get('observation', '')
+        folder_name = request.form.get('folder_name', '')  # Nombre de la carpeta
         
+        # Asegurarse de que folder_name no contenga el prefijo "Carpeta "
+        if folder_name and folder_name.startswith("Carpeta "):
+            folder_name = folder_name.replace("Carpeta ", "")
+            
         # Validar que exista el código de proyecto
         if not project_code:
             return jsonify({'success': False, 'error': 'No se proporcionó código de proyecto'}), 400
@@ -1473,21 +1458,45 @@ def actualizar_indexacion():
                 reader = csv.reader(csvfile)
                 headers = next(reader)  # Guardar encabezados
                 
+                # Asegurarse de que existe la columna CARPETA
+                if 'CARPETA' not in headers:
+                    headers.append('CARPETA')
+                
+                # Obtener los índices de las columnas que necesitamos actualizar
+                carpeta_index = headers.index('CARPETA')
+                caja_index = 9 if len(headers) > 9 else -1
+                doc_presente_index = 11 if len(headers) > 11 else -1
+                observacion_index = 12 if len(headers) > 12 else -1
+                indexado_index = 14 if len(headers) > 14 else -1
+                
                 for row in reader:
-                    if len(row) >= 3 and row[2] == project_code:  # La columna CODIGO es la 3ª (índice 2)
+                    # Asegurarse de que la fila tenga al menos 3 columnas para verificar el código
+                    if len(row) >= 3 and row[2] == project_code:
+                        # Expandir la fila si es necesario para acomodar todas las columnas
+                        while len(row) <= max(carpeta_index, caja_index, doc_presente_index, observacion_index, indexado_index):
+                            row.append('')
+                            
                         # Actualizar la fila existente
                         found = True
-                        # Preservar valores existentes en columnas no modificadas
-                        row[9] = box_number  # CAJA
-                        row[11] = document_present  # DOC_PRESENTE
-                        row[12] = observation  # OBSERVACION
-                        row[14] = 'SI'  # INDEXADO
+                        # Actualizar valores en columnas específicas
+                        if caja_index >= 0:
+                            row[caja_index] = box_number  # CAJA
+                        if doc_presente_index >= 0:
+                            row[doc_presente_index] = document_present  # DOC_PRESENTE
+                        if observacion_index >= 0:
+                            row[observacion_index] = observation  # OBSERVACION
+                        if indexado_index >= 0:
+                            row[indexado_index] = 'SI'  # INDEXADO
+                        
+                        # Guardar el nombre de la carpeta
+                        row[carpeta_index] = folder_name
+                        
                     rows.append(row)
         else:
             # Si el archivo no existe, crear encabezados
             headers = ['YEAR', 'TIPO_SUBVENCION', 'CODIGO', 'NOMBRE_INICIATIVA', 'PROVINCIA', 
                       'COMUNA', 'RUT_INSTITUCION', 'NOMBRE_INSTITUCION', 'ID', 'CAJA', 
-                      'UBICACION', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH', 'INDEXADO']
+                      'UBICACION', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH', 'INDEXADO', 'CARPETA']
         
         # Si no se encontró la fila, agregar mensaje de error
         if not found:
@@ -1498,21 +1507,6 @@ def actualizar_indexacion():
             writer = csv.writer(csvfile)
             writer.writerow(headers)
             writer.writerows(rows)
-        
-        # Crear o actualizar el PDF en la carpeta de procesados si no existe
-        pdf_filename = f"pdf_procesado/{project_code}.pdf"
-        
-        # Solo generar PDF si no existe ya uno con ese código
-        if not os.path.exists(pdf_filename):
-            # Código para generar PDF con las imágenes de la carpeta
-            # Aquí iría el código de generación de PDF, similar al que ya tienes
-            # en la función generar_pdf_indexado
-            
-            # Asegurarse de que exista la carpeta de destino
-            os.makedirs(os.path.dirname(pdf_filename), exist_ok=True)
-            
-            # Esto es solo un marcador - el código real debería generar el PDF
-            # ...
         
         return jsonify({
             'success': True,
@@ -1557,6 +1551,48 @@ def get_original_image():
     
     # Servir la imagen directamente (sin procesamiento)
     return send_file(image_path, mimetype='image/jpeg')
+
+@app.route('/create_new_folder', methods=['POST'])
+@login_required
+def create_new_folder_route():
+    """Endpoint para crear una nueva carpeta."""
+    result = create_new_folder()
+    return jsonify(result), 200 if result['success'] else 500
+
+def move_images_to_folder(folder_path):
+    """
+    Mueve todas las imágenes de la carpeta de entrada a la carpeta especificada.
+    
+    Args:
+        folder_path (str): Ruta a la carpeta de destino
+        
+    Returns:
+        int: Número de archivos movidos
+    """
+    try:
+        # Verificar que hay imágenes para mover
+        images = get_latest_images()
+        if not images:
+            logger.info("No hay imágenes para mover")
+            return 0
+        
+        # Mover las imágenes a la carpeta destino
+        moved_count = 0
+        for img_path in images:
+            filename = os.path.basename(img_path)
+            dest_path = os.path.join(folder_path, filename)
+            shutil.move(img_path, dest_path)
+            moved_count += 1
+            logger.debug(f"Movida imagen {img_path} a {dest_path}")
+        
+        logger.info(f"Se movieron {moved_count} imágenes a {folder_path}")
+        return moved_count
+        
+    except Exception as e:
+        logger.error(f"Error al mover imágenes a {folder_path}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return 0
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

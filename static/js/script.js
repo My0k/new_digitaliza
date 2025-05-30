@@ -1190,51 +1190,62 @@ function setupClearButton() {
     }
 }
 
-// Funciones para las acciones específicas de cada modo
+// Función para generar una nueva carpeta
 function generateFolder() {
-    // Mostrar indicador de carga
-    const btn = document.getElementById('generateFolderBtn');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Creando...';
-    btn.disabled = true;
-    
-    fetch('/generar_carpeta')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Mostrar alerta de éxito
-                Swal.fire({
-                    icon: 'success',
-                    title: 'Carpeta Creada',
-                    text: `Se ha creado la carpeta ${data.folder} con ${data.files_moved} imágenes`,
-                    showConfirmButton: false,
-                    timer: 1500 // Auto-cerrar después de 1.5 segundos
-                }).then(() => {
-                    // Refrescar la página después de cerrar la alerta
-                    window.location.reload();
-                });
-            } else {
+    // Confirmar antes de crear la carpeta
+    Swal.fire({
+        title: '¿Crear nueva carpeta?',
+        text: 'Se moverán todas las imágenes actuales a una nueva carpeta numerada',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, crear carpeta',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Mostrar carga
+            Swal.fire({
+                title: 'Creando carpeta...',
+                text: 'Espere un momento mientras se procesa',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            // Hacer petición al servidor para generar carpeta
+            fetch('/generar_carpeta', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Carpeta creada correctamente',
+                        text: `Se ha creado la carpeta ${data.folder_name}`,
+                        confirmButtonText: 'Aceptar'
+                    }).then(() => {
+                        // Recargar imágenes
+                        refreshImages();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.error || 'No se pudo crear la carpeta'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error al generar carpeta:', error);
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
-                    text: data.error || 'No se pudo crear la carpeta'
+                    text: 'Ocurrió un error al crear la carpeta'
                 });
-                // Restaurar el botón
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }
-        })
-        .catch(error => {
-            console.error('Error al generar carpeta:', error);
-            Swal.fire({
-                icon: 'error',
-                title: 'Error',
-                text: 'Ocurrió un error al crear la carpeta'
             });
-            // Restaurar el botón
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        });
+        }
+    });
 }
 
 function extractProjectCode() {
@@ -1299,11 +1310,19 @@ function extractProjectCode() {
         });
 }
 
-// Modificar la función de generación de PDF indexado para actualizar CSV
+// Modificar la función de indexación para extraer solo el ID de la carpeta
 function generateIndexedPdf() {
     // Obtener los valores del formulario
     const folderSelect = document.getElementById('folderSelect');
     const folderId = folderSelect.value;
+    
+    // Obtener el nombre/ID de la carpeta y extraer solo el ID
+    let folderName = folderSelect.options[folderSelect.selectedIndex].text;
+    // Eliminar el prefijo "Carpeta " si existe
+    if (folderName.startsWith("Carpeta ")) {
+        folderName = folderName.replace("Carpeta ", "");
+    }
+    
     const projectCode = document.getElementById('projectCode').value;
     const boxNumber = document.getElementById('boxNumber').value;
     const documentPresent = document.querySelector('input[name="documentPresent"]:checked').value;
@@ -1342,6 +1361,7 @@ function generateIndexedPdf() {
     // Preparar datos para enviar
     const formData = new FormData();
     formData.append('folder_id', folderId);
+    formData.append('folder_name', folderName); // Enviar el nombre sin el prefijo
     formData.append('project_code', projectCode);
     formData.append('box_number', boxNumber);
     formData.append('document_present', documentPresent);
@@ -1633,4 +1653,54 @@ function showLoadingIndicator(elementId) {
             <p class="mt-3">Cargando imágenes...</p>
         </div>
     `;
+}
+
+// Función para crear una nueva carpeta
+function createNewFolder() {
+    // Mostrar un indicador de carga o un mensaje
+    Swal.fire({
+        title: 'Creando carpeta',
+        text: 'Por favor espere...',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+    
+    // Hacer una solicitud al servidor para crear una nueva carpeta
+    fetch('/create_new_folder', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Mostrar un mensaje de éxito con el nombre de la carpeta
+            Swal.fire({
+                icon: 'success',
+                title: 'Carpeta creada',
+                text: `Se ha creado la carpeta: ${data.folder_name}`,
+                confirmButtonText: 'Aceptar'
+            }).then((result) => {
+                // Recargar la página o actualizar la lista de carpetas
+                if (result.isConfirmed) {
+                    window.location.reload();
+                }
+            });
+        } else {
+            // Mostrar un mensaje de error
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.error || 'No se pudo crear la carpeta'
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error al crear carpeta:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Ocurrió un error al crear la carpeta'
+        });
+    });
 }
