@@ -1714,10 +1714,10 @@ def process_folder():
             }), 400
         
         # Importar la función desde el módulo
-        from functions.generar_ocr import generar_pdf_simple
+        from functions.generar_ocr import generar_pdf_con_ocr
         
-        # Procesar la carpeta
-        result = generar_pdf_simple(folder_id)
+        # Procesar la carpeta con OCR
+        result = generar_pdf_con_ocr(folder_id)
         
         return jsonify(result)
     except Exception as e:

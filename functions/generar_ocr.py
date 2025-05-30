@@ -2,6 +2,7 @@ import os
 import glob
 import logging
 import subprocess
+import platform
 from PIL import Image
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -406,6 +407,185 @@ def generar_pdf_simple(folder_id):
             'success': False,
             'error': error_msg
         }
+
+def generar_pdf_con_ocr(folder_id):
+    """
+    Genera un PDF con OCR a partir de las imágenes en una carpeta específica.
+    Primero crea un PDF básico y luego aplica OCR usando ocrmypdf.
+    
+    Args:
+        folder_id (str): Identificador de la carpeta a procesar
+        
+    Returns:
+        dict: Diccionario con el resultado de la operación
+    """
+    try:
+        # Primero generamos el PDF básico
+        result = generar_pdf_simple(folder_id)
+        
+        if not result['success']:
+            return result  # Si falla la generación del PDF básico, retornamos el error
+        
+        # Rutas para el PDF generado y el PDF con OCR
+        pdf_path = result['pdf_path']
+        ocr_pdf_path = pdf_path.replace('.pdf', '_ocr.pdf')
+        
+        # Verificar que ocrmypdf está instalado
+        if not check_ocrmypdf_installed():
+            logger.warning("ocrmypdf no está instalado. Intentando instalarlo...")
+            if not install_ocrmypdf():
+                return {
+                    'success': False,
+                    'error': "No se pudo instalar ocrmypdf para el procesamiento OCR.",
+                    'pdf_path': pdf_path,  # Devolvemos el PDF básico como fallback
+                    'folder_id': folder_id
+                }
+        
+        # Aplicar OCR al PDF básico
+        logger.info(f"Aplicando OCR al PDF de la carpeta {folder_id}...")
+        success = process_pdf_with_ocr(pdf_path, ocr_pdf_path)
+        
+        if success:
+            # Si el OCR fue exitoso, reemplazamos el PDF original con el OCR
+            if os.path.exists(ocr_pdf_path):
+                os.replace(ocr_pdf_path, pdf_path)
+                logger.info(f"PDF con OCR generado exitosamente y reemplazado: {pdf_path}")
+                return {
+                    'success': True,
+                    'message': f"PDF con OCR generado: {pdf_path}",
+                    'pdf_path': pdf_path,
+                    'folder_id': folder_id,
+                    'ocr_applied': True
+                }
+            else:
+                logger.warning(f"El archivo OCR no existe después del procesamiento: {ocr_pdf_path}")
+                return {
+                    'success': True,
+                    'message': f"PDF generado sin OCR: {pdf_path}",
+                    'pdf_path': pdf_path,
+                    'folder_id': folder_id,
+                    'ocr_applied': False
+                }
+        else:
+            logger.error(f"Error al aplicar OCR al PDF {pdf_path}")
+            return {
+                'success': True,  # Consideramos éxito parcial ya que el PDF básico se generó
+                'message': f"PDF generado sin OCR: {pdf_path}",
+                'pdf_path': pdf_path,
+                'folder_id': folder_id,
+                'ocr_applied': False,
+                'ocr_error': "Error al procesar OCR. Se mantiene el PDF básico."
+            }
+            
+    except Exception as e:
+        error_msg = f"Error al generar PDF con OCR para carpeta {folder_id}: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'success': False,
+            'error': error_msg
+        }
+
+def check_ocrmypdf_installed():
+    """Verifica si ocrmypdf está instalado en el sistema."""
+    try:
+        subprocess.run(["ocrmypdf", "--version"], 
+                      stdout=subprocess.PIPE, 
+                      stderr=subprocess.PIPE,
+                      check=True)
+        return True
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+def install_ocrmypdf():
+    """Intenta instalar ocrmypdf si no está disponible."""
+    system = platform.system()
+    logger.info(f"Intentando instalar ocrmypdf en sistema {system}...")
+    
+    try:
+        if system == "Windows":
+            subprocess.run(["pip", "install", "ocrmypdf"], check=True)
+            logger.info("Se ha instalado ocrmypdf correctamente.")
+            return True
+        elif system == "Linux":
+            # En entornos de producción, es mejor instalar con apt
+            try:
+                subprocess.run(["apt-get", "update"], check=True)
+                subprocess.run(["apt-get", "install", "-y", "ocrmypdf"], check=True)
+                logger.info("Se ha instalado ocrmypdf correctamente con apt.")
+                return True
+            except subprocess.SubprocessError:
+                # Si falla apt, intentar con pip
+                subprocess.run(["pip", "install", "ocrmypdf"], check=True)
+                logger.info("Se ha instalado ocrmypdf correctamente con pip.")
+                return True
+        else:
+            logger.error(f"Sistema operativo {system} no soportado directamente.")
+            # Intentar con pip como último recurso
+            subprocess.run(["pip", "install", "ocrmypdf"], check=True)
+            logger.info("Se ha instalado ocrmypdf correctamente con pip.")
+            return True
+    except subprocess.SubprocessError:
+        logger.error("Error al instalar ocrmypdf. Se requiere instalación manual.")
+        return False
+
+def process_pdf_with_ocr(input_file, output_file, language="spa", deskew=True, clean=True, optimize=True):
+    """
+    Procesa un archivo PDF y genera una versión con OCR.
+    
+    Args:
+        input_file: Ruta del archivo PDF de entrada
+        output_file: Ruta donde se guardará el PDF con OCR
+        language: Idioma para el OCR (por defecto español)
+        deskew: Si se debe enderezar el texto inclinado
+        clean: Si se debe limpiar la imagen antes del OCR
+        optimize: Si se debe optimizar el PDF resultante
+        
+    Returns:
+        bool: True si el proceso fue exitoso, False en caso contrario
+    """
+    if not os.path.exists(input_file):
+        logger.error(f"Error: El archivo {input_file} no existe.")
+        return False
+    
+    # Preparar comando con opciones
+    cmd = ["ocrmypdf"]
+    
+    if deskew:
+        cmd.append("--deskew")
+    
+    if clean:
+        cmd.append("--clean")
+    
+    if optimize:
+        cmd.append("--optimize")
+        cmd.append("3")
+    
+    # Forzar OCR aunque el PDF ya tenga texto
+    cmd.append("--force-ocr")
+    
+    # Especificar idioma
+    cmd.extend(["-l", language])
+    
+    # Agregar archivos de entrada y salida
+    cmd.extend([str(input_file), str(output_file)])
+    
+    try:
+        logger.info(f"Procesando {input_file} con OCR...")
+        process = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        logger.info(f"OCR aplicado exitosamente. Guardado en {output_file}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error al procesar OCR: {e}")
+        logger.error(f"Detalles: {e.stderr}")
+        return False
 
 if __name__ == "__main__":
     # Probar la función si se ejecuta directamente
