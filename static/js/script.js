@@ -1299,100 +1299,88 @@ function extractProjectCode() {
         });
 }
 
+// Modificar la función de generación de PDF indexado para actualizar CSV
 function generateIndexedPdf() {
-    // Obtener la carpeta actual
-    const folderDropdown = document.getElementById('folderDropdown');
-    const currentFolder = folderDropdown.textContent.replace('Carpeta: ', '');
-    
-    if (!currentFolder || currentFolder === 'Ninguna') {
-        Swal.fire({
-            icon: 'warning',
-            title: 'No hay carpeta seleccionada',
-            text: 'Seleccione una carpeta para generar el PDF'
-        });
-        return;
-    }
-    
-    // Obtener datos del formulario
+    // Obtener los valores del formulario
+    const folderSelect = document.getElementById('folderSelect');
+    const folderId = folderSelect.value;
     const projectCode = document.getElementById('projectCode').value;
     const boxNumber = document.getElementById('boxNumber').value;
     const documentPresent = document.querySelector('input[name="documentPresent"]:checked').value;
     const observation = document.getElementById('observation').value;
     
-    // Validar código de proyecto (opcional)
-    if (projectCode && !(projectCode.length >= 6 && projectCode.startsWith('23'))) {
+    // Validar que se haya seleccionado una carpeta
+    if (!folderId) {
         Swal.fire({
-            icon: 'warning',
-            title: 'Código de proyecto inválido',
-            text: 'El código debe comenzar con 23 y tener al menos 6 caracteres'
+            icon: 'error',
+            title: 'Error',
+            text: 'Debe seleccionar una carpeta para indexar'
+        });
+        return;
+    }
+    
+    // Validar el código de proyecto (campo obligatorio)
+    if (!projectCode) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Debe ingresar un código de proyecto'
         });
         return;
     }
     
     // Mostrar indicador de carga
-    const btn = document.getElementById('generatePdfBtn');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Generando PDF...';
-    btn.disabled = true;
+    Swal.fire({
+        title: 'Procesando',
+        text: 'Indexando documento...',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
     
-    // Datos para enviar
-    const data = {
-        folder_id: currentFolder,
-        project_code: projectCode,
-        box_number: boxNumber,
-        document_present: documentPresent,
-        observation: observation
-    };
+    // Preparar datos para enviar
+    const formData = new FormData();
+    formData.append('folder_id', folderId);
+    formData.append('project_code', projectCode);
+    formData.append('box_number', boxNumber);
+    formData.append('document_present', documentPresent);
+    formData.append('observation', observation);
     
-    fetch('/generar_pdf_indexado', {
+    // Enviar petición al servidor
+    fetch('/actualizar_indexacion', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
+        body: formData
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
             Swal.fire({
                 icon: 'success',
-                title: 'PDF generado correctamente',
-                text: `Se ha generado el PDF: ${data.pdf_name}`,
-                confirmButtonText: 'Ir a Exportar',
-                showCancelButton: true,
-                cancelButtonText: 'Continuar'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    // Redirigir a la página de exportar en lugar de procesado
-                    window.location.href = '/exportar';
-                } else {
-                    // Limpiar el formulario
-                    document.getElementById('projectCode').value = '';
-                    document.getElementById('boxNumber').value = '';
-                    document.getElementById('docPresentYes').checked = true;
-                    document.getElementById('observation').value = '';
-                }
+                title: 'Éxito',
+                text: 'Documento indexado correctamente'
             });
+            
+            // Limpiar el formulario después de indexar exitosamente
+            document.getElementById('projectCode').value = '';
+            document.getElementById('boxNumber').value = '';
+            document.getElementById('observation').value = '';
+            document.getElementById('documentPresentYes').checked = true;
         } else {
             Swal.fire({
                 icon: 'error',
                 title: 'Error',
-                text: data.error || 'No se pudo generar el PDF'
+                text: data.error || 'No se pudo indexar el documento'
             });
         }
     })
     .catch(error => {
-        console.error('Error al generar PDF:', error);
+        console.error('Error al indexar documento:', error);
         Swal.fire({
             icon: 'error',
             title: 'Error',
-            text: 'Ocurrió un error al generar el PDF'
+            text: 'Ocurrió un error al procesar la solicitud'
         });
-    })
-    .finally(() => {
-        // Restaurar el botón
-        btn.innerHTML = originalText;
-        btn.disabled = false;
     });
 }
 
