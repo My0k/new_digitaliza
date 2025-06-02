@@ -179,54 +179,17 @@ def check_folder_changes():
                 if file.lower().endswith(('.jpg', '.jpeg')) and os.path.isfile(file_path):
                     mod_time = os.path.getmtime(file_path)
                     
-                    # Verificar si el nombre del archivo ya tiene formato de timestamp+letras
-                    filename_without_ext = os.path.splitext(file)[0]
-                    # Verificar si el nombre tiene al menos 13 caracteres (timestamp) y los primeros 10+ son dígitos
-                    is_correct_format = len(filename_without_ext) >= 13 and filename_without_ext[:-3].isdigit()
-                    
-                    if not is_correct_format:
-                        # Si el archivo no está en el registro, añadirlo con el tiempo actual
-                        if file_path not in new_files_detected:
-                            new_files_detected[file_path] = current_time
-                            logger.info(f"Nuevo archivo detectado: {file} - esperando 20 segundos antes de renombrar")
+                    # RENOMBRADO DESACTIVADO
+                    # Aquí estaba el código de renombrado que ha sido comentado/eliminado
                     
                     if mod_time > latest_mod_time:
                         latest_mod_time = mod_time
             
-            # Procesar los archivos que llevan más de 20 segundos detectados
-            files_to_rename = []
-            files_to_remove = []
-            
-            for file_path, detected_time in new_files_detected.items():
-                # Verificar si aún existe (podría haber sido eliminado)
-                if not os.path.exists(file_path):
-                    files_to_remove.append(file_path)
-                    continue
-                
-                # Si han pasado 20 segundos desde la detección, renombrar
-                if current_time - detected_time >= 20:
-                    files_to_rename.append(file_path)
-                    files_to_remove.append(file_path)  # Remover de la lista después de renombrar
-            
-            # Eliminar archivos que ya no existen o van a ser renombrados de la lista de seguimiento
-            for file_path in files_to_remove:
-                new_files_detected.pop(file_path, None)
-            
-            # Renombrar archivos que han esperado 20 segundos
-            for file_path in files_to_rename:
-                try:
-                    old_filename = os.path.basename(file_path)
-                    new_filename = generate_unique_filename()
-                    new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
-                    
-                    # Renombrar el archivo
-                    os.rename(file_path, new_path)
-                    logger.info(f"Archivo renombrado después de 20 segundos: {old_filename} -> {new_filename}")
-                except Exception as e:
-                    logger.error(f"Error al renombrar archivo {file_path}: {str(e)}")
+            # RENOMBRADO DESACTIVADO
+            # Aquí estaba el código para procesar los archivos a renombrar
             
             # Si hay cambios, actualizar la variable global
-            if latest_mod_time > last_folder_modification or files_to_rename:
+            if latest_mod_time > last_folder_modification:
                 last_folder_modification = latest_mod_time
                 logger.info(f"Cambios detectados en la carpeta input: {datetime.fromtimestamp(latest_mod_time)}")
             
