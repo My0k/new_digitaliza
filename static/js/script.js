@@ -338,27 +338,80 @@ function appendToImageGrid(imageSet) {
     
     imageSet.forEach(image => {
         const col = document.createElement('div');
-        col.className = 'col';
-        col.innerHTML = `
-            <div class="card h-100 image-card">
-                <img src="${image.data}" class="card-img-top" alt="${image.name}" loading="lazy">
-                <div class="card-body">
-                    <h5 class="card-title">${image.name}</h5>
-                    <p class="card-text">${image.modified}</p>
-                </div>
-                <div class="card-footer text-center">
-                    <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'left')">
-                        <i class="fas fa-undo"></i>
-                    </button>
-                    <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'right')">
-                        <i class="fas fa-redo"></i>
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteImage('${image.name}')">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-        `;
+        col.className = 'col-md-6';
+        
+        // Crear la tarjeta con la imagen
+        const card = document.createElement('div');
+        card.className = 'card h-100 image-card';
+        
+        // Crear la imagen con evento de clic
+        const img = document.createElement('img');
+        img.src = image.data;
+        img.className = 'card-img-top';
+        img.alt = image.name;
+        img.loading = 'lazy';
+        img.style.cursor = 'pointer'; // Cambiar cursor para indicar que es clickeable
+        
+        // Añadir evento de clic para mostrar imagen original
+        img.addEventListener('click', function() {
+            // Construir la URL para la imagen original
+            const originalImageUrl = `/get_original_image?path=${encodeURIComponent(image.path)}`;
+            
+            // Abrir en una nueva ventana o modal
+            window.open(originalImageUrl, '_blank');
+        });
+        
+        // Añadir el resto de la tarjeta
+        const cardBody = document.createElement('div');
+        cardBody.className = 'card-body';
+        
+        const h5 = document.createElement('h5');
+        h5.className = 'card-title';
+        h5.textContent = image.name;
+        
+        const p = document.createElement('p');
+        p.className = 'card-text';
+        p.textContent = image.modified;
+        
+        cardBody.appendChild(h5);
+        cardBody.appendChild(p);
+        
+        // Añadir el footer de botones
+        const cardFooter = document.createElement('div');
+        cardFooter.className = 'card-footer text-center';
+        
+        const leftButton = document.createElement('button');
+        leftButton.className = 'btn btn-sm btn-info me-1';
+        leftButton.innerHTML = '<i class="fas fa-undo"></i>';
+        leftButton.addEventListener('click', function() {
+            rotateImage(image.name, 'left');
+        });
+        
+        const rightButton = document.createElement('button');
+        rightButton.className = 'btn btn-sm btn-info me-1';
+        rightButton.innerHTML = '<i class="fas fa-redo"></i>';
+        rightButton.addEventListener('click', function() {
+            rotateImage(image.name, 'right');
+        });
+        
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'btn btn-sm btn-danger';
+        deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+        deleteButton.addEventListener('click', function() {
+            if (confirm('¿Está seguro de que desea eliminar este documento?')) {
+                deleteImage(image.name);
+            }
+        });
+        
+        cardFooter.appendChild(leftButton);
+        cardFooter.appendChild(rightButton);
+        cardFooter.appendChild(deleteButton);
+        
+        card.appendChild(img);
+        card.appendChild(cardBody);
+        card.appendChild(cardFooter);
+        
+        col.appendChild(card);
         imageGrid.appendChild(col);
     });
     
