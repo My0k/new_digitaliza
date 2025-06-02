@@ -1,4 +1,4 @@
-#!/home/myok/Desktop/proyectos/new-digitaliza/venv/bin/python3
+#!/home/myok/Desktop/proyectos/gore/new_digitaliza/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

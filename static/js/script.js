@@ -572,23 +572,68 @@ function scanDocuments() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Mostrar mensaje de éxito
-                alert('Documentos escaneados correctamente');
-                // Actualizar las imágenes
+                // Mostrar mensaje de éxito en un toast o notificación menos intrusiva
+                showToast('Iniciando escaneo de documentos...', 'success');
+                
+                // Refrescar inmediatamente
                 refreshImages();
+                
+                // Configurar refrescos automáticos cada 5 segundos, hasta 6 veces
+                let refreshCount = 0;
+                const maxRefreshes = 6;
+                const refreshInterval = setInterval(() => {
+                    refreshCount++;
+                    refreshImages();
+                    console.log(`Refresh automático ${refreshCount} de ${maxRefreshes}`);
+                    
+                    // Mostrar indicador de progreso
+                    scanBtn.innerHTML = `<i class="fas fa-sync fa-spin"></i> Actualizando (${refreshCount}/${maxRefreshes})`;
+                    
+                    // Detener después de 6 refrescos
+                    if (refreshCount >= maxRefreshes) {
+                        clearInterval(refreshInterval);
+                        scanBtn.innerHTML = originalText;
+                        scanBtn.disabled = false;
+                        showToast('Actualización de imágenes completada', 'info');
+                    }
+                }, 5000); // 5 segundos
             } else {
-                alert('Error al escanear documentos: ' + data.error);
+                showToast('Error al escanear documentos: ' + data.error, 'error');
+                scanBtn.innerHTML = originalText;
+                scanBtn.disabled = false;
             }
         })
         .catch(error => {
             console.error('Error al escanear:', error);
-            alert('Error al escanear documentos');
-        })
-        .finally(() => {
-            // Restaurar el botón
+            showToast('Error al escanear documentos', 'error');
             scanBtn.innerHTML = originalText;
             scanBtn.disabled = false;
         });
+}
+
+// Función auxiliar para mostrar notificaciones tipo toast
+function showToast(message, type = 'info') {
+    // Si existe un sistema de toast en la aplicación, usarlo
+    // Si no, podemos usar una alerta simple o implementar un toast básico
+    if (typeof Toastify === 'function') {
+        Toastify({
+            text: message,
+            duration: 3000,
+            close: true,
+            gravity: "top",
+            position: "right",
+            backgroundColor: type === 'success' ? "#4caf50" : 
+                             type === 'error' ? "#f44336" : "#2196f3",
+        }).showToast();
+    } else {
+        // Fallback a console y un alert menos intrusivo
+        console.log(message);
+        
+        // Solo mostrar alerta para errores
+        if (type === 'error') {
+            alert(message);
+        }
+    }
 }
 
 // Función para procesar el documento

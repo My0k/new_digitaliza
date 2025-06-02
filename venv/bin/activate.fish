@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV /home/myok/Desktop/proyectos/new-digitaliza/venv
+set -gx VIRTUAL_ENV /home/myok/Desktop/proyectos/gore/new_digitaliza/venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH
