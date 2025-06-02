@@ -578,25 +578,63 @@ function scanDocuments() {
                 // Refrescar inmediatamente
                 refreshImages();
                 
-                // Configurar refrescos automáticos cada 5 segundos, hasta 6 veces
+                // Configurar refrescos automáticos cada 10 segundos, hasta 10 veces
                 let refreshCount = 0;
-                const maxRefreshes = 6;
+                const maxRefreshes = 10;
+                
+                // Crear o actualizar contador de imágenes
+                let imageCounterElement = document.getElementById('imageCounter');
+                if (!imageCounterElement) {
+                    imageCounterElement = document.createElement('div');
+                    imageCounterElement.id = 'imageCounter';
+                    imageCounterElement.className = 'mt-2 text-center small text-muted';
+                    const refreshBtn = document.getElementById('refreshBtn');
+                    if (refreshBtn) {
+                        refreshBtn.parentNode.insertBefore(imageCounterElement, refreshBtn.nextSibling);
+                    } else {
+                        document.querySelector('.card-header').appendChild(imageCounterElement);
+                    }
+                }
+                imageCounterElement.innerHTML = 'Buscando imágenes...';
+                
                 const refreshInterval = setInterval(() => {
                     refreshCount++;
-                    refreshImages();
+                    
+                    // Actualizar imágenes y contador
+                    fetch('/refresh')
+                        .then(response => response.json())
+                        .then(refreshData => {
+                            if (refreshData.success) {
+                                // Actualizar contador de imágenes
+                                const imageCount = refreshData.images ? refreshData.images.length : 0;
+                                imageCounterElement.innerHTML = `Imágenes en carpeta: <strong>${imageCount}</strong> (Refresh ${refreshCount}/${maxRefreshes})`;
+                            }
+                            refreshImages();
+                        });
+                    
                     console.log(`Refresh automático ${refreshCount} de ${maxRefreshes}`);
                     
                     // Mostrar indicador de progreso
                     scanBtn.innerHTML = `<i class="fas fa-sync fa-spin"></i> Actualizando (${refreshCount}/${maxRefreshes})`;
                     
-                    // Detener después de 6 refrescos
+                    // Detener después de 10 refrescos
                     if (refreshCount >= maxRefreshes) {
                         clearInterval(refreshInterval);
                         scanBtn.innerHTML = originalText;
                         scanBtn.disabled = false;
                         showToast('Actualización de imágenes completada', 'info');
+                        
+                        // Mantener el contador de imágenes visible
+                        fetch('/refresh')
+                            .then(response => response.json())
+                            .then(finalData => {
+                                if (finalData.success) {
+                                    const finalImageCount = finalData.images ? finalData.images.length : 0;
+                                    imageCounterElement.innerHTML = `Imágenes en carpeta: <strong>${finalImageCount}</strong>`;
+                                }
+                            });
                     }
-                }, 5000); // 5 segundos
+                }, 10000); // 10 segundos
             } else {
                 showToast('Error al escanear documentos: ' + data.error, 'error');
                 scanBtn.innerHTML = originalText;
