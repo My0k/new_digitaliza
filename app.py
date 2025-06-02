@@ -73,6 +73,10 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
         modified_time = os.path.getmtime(image_path)
         modified = datetime.fromtimestamp(modified_time).strftime('%d/%m/%Y %H:%M:%S')
         
+        # Verificar si han pasado al menos 10 segundos desde la creación de la imagen
+        current_time = time.time()
+        time_since_creation = current_time - modified_time
+        
         # Codificar la imagen en base64 para enviarla, opcionalmente generando thumbnail
         try:
             if thumbnail:
@@ -84,17 +88,36 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
                 thumb_name = f"thumb_{name}"
                 thumb_path = os.path.join(thumbnails_folder, thumb_name)
                 
-                # Verificar si la miniatura ya existe y es más reciente que la imagen original
+                # Verificar si la miniatura ya existe
                 thumb_exists = os.path.exists(thumb_path)
+                
+                # Si han pasado menos de 10 segundos desde la creación de la imagen
+                # y la miniatura aún no existe, devolver placeholder
+                if time_since_creation < 10 and not thumb_exists:
+                    logger.info(f"Imagen {name} es demasiado reciente ({time_since_creation:.1f}s), mostrando placeholder")
+                    return {
+                        'name': name,
+                        'path': image_path,
+                        'data': None,  # El frontend usará un placeholder
+                        'modified': modified,
+                        'is_thumbnail': False,
+                        'pending_thumbnail': True,
+                        'seconds_remaining': max(0, 10 - time_since_creation)
+                    }
                 
                 if thumb_exists:
                     thumb_modified_time = os.path.getmtime(thumb_path)
                     # Si la imagen original es más reciente que la miniatura, recrearla
+                    # pero solo si han pasado al menos 10 segundos desde la modificación
                     if modified_time > thumb_modified_time:
-                        thumb_exists = False
+                        if time_since_creation < 10:
+                            logger.info(f"Imagen {name} modificada recientemente ({time_since_creation:.1f}s), usando miniatura antigua")
+                        else:
+                            thumb_exists = False
                 
                 # Si la miniatura no existe o debe ser actualizada, crearla
-                if not thumb_exists:
+                # siempre y cuando hayan pasado al menos 10 segundos
+                if not thumb_exists and time_since_creation >= 10:
                     with Image.open(image_path) as img:
                         # Conservar la proporción de aspecto pero limitar tamaño máximo
                         img.thumbnail((max_size, max_size), Image.LANCZOS)
@@ -109,10 +132,22 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
                         img.save(thumb_path, format="JPEG", quality=70, optimize=True)
                         logger.info(f"Miniatura creada: {thumb_path}")
                 
-                # Leer la miniatura desde el disco y codificarla
-                with open(thumb_path, "rb") as img_file:
-                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
-                    data_url = f"data:image/jpeg;base64,{encoded_string}"
+                # Si la miniatura existe, usarla
+                if os.path.exists(thumb_path):
+                    with open(thumb_path, "rb") as img_file:
+                        encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                        data_url = f"data:image/jpeg;base64,{encoded_string}"
+                else:
+                    # Si la miniatura aún no se ha creado, devolver placeholder
+                    return {
+                        'name': name,
+                        'path': image_path,
+                        'data': None,
+                        'modified': modified,
+                        'is_thumbnail': False,
+                        'pending_thumbnail': True,
+                        'seconds_remaining': max(0, 10 - time_since_creation)
+                    }
             else:
                 # Usar la imagen original
                 with open(image_path, "rb") as img_file:
@@ -132,7 +167,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
             'data': data_url,
             'modified': modified,
             'is_thumbnail': thumbnail,
-            'thumb_path': thumb_path if thumbnail and 'thumb_path' in locals() else None
+            'thumb_path': thumb_path if thumbnail and 'thumb_path' in locals() else None,
+            'pending_thumbnail': False
         }
     except Exception as e:
         logger.error(f"Error al procesar imagen {image_path}: {str(e)}")
@@ -141,7 +177,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
             'path': image_path,
             'data': None,
             'modified': 'Error',
-            'is_thumbnail': False
+            'is_thumbnail': False,
+            'pending_thumbnail': False
         }
 
 # Función para generar un nombre de archivo único basado en timestamp y letras aleatorias

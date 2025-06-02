@@ -222,27 +222,133 @@ function swapDocuments() {
 }
 */
 
-// Función para actualizar las imágenes
-function refreshImages() {
-    // Mostrar indicador de carga
-    showLoadingIndicator('imageGrid');
+// Función para actualizar la visualización de imágenes
+function updateImageDisplay(images) {
+    const imageGrid = document.getElementById('imageGrid');
+    if (!imageGrid) return;
     
+    // Limpiar contenido actual
+    imageGrid.innerHTML = '';
+    
+    // Si no hay imágenes, mostrar mensaje
+    if (images.length === 0) {
+        imageGrid.innerHTML = '<div class="col-12 text-center"><p>No hay imágenes disponibles</p></div>';
+        return;
+    }
+    
+    // Agregar cada imagen al grid
+    images.forEach(function(image) {
+        const col = document.createElement('div');
+        col.className = 'col';
+        
+        const card = document.createElement('div');
+        card.className = 'card h-100 image-card';
+        
+        // Crear elemento de imagen o placeholder
+        let imgElement;
+        
+        if (image.pending_thumbnail) {
+            // Crear div de placeholder
+            imgElement = document.createElement('div');
+            imgElement.className = 'card-img-top placeholder-img d-flex align-items-center justify-content-center';
+            imgElement.style.height = '300px';
+            imgElement.style.backgroundColor = '#f8f9fa';
+            imgElement.style.border = '1px solid #dee2e6';
+            
+            const placeholderText = document.createElement('div');
+            placeholderText.className = 'text-center';
+            placeholderText.innerHTML = `
+                <i class="fas fa-hourglass-half fa-3x mb-3 text-muted"></i>
+                <p class="mb-0">Generando miniatura</p>
+                <small class="text-muted">Disponible en ${Math.ceil(image.seconds_remaining)} segundos</small>
+            `;
+            
+            imgElement.appendChild(placeholderText);
+        } else {
+            // Crear imagen normal
+            imgElement = document.createElement('img');
+            imgElement.className = 'card-img-top';
+            imgElement.src = image.data;
+            imgElement.alt = image.name;
+            // Añadir enlace para ver imagen completa
+            imgElement.style.cursor = 'pointer';
+            imgElement.onclick = function() {
+                window.open(`/get_original_image?path=${encodeURIComponent(image.path)}`, '_blank');
+            };
+        }
+        
+        // Añadir imagen o placeholder al card
+        card.appendChild(imgElement);
+        
+        // Crear cuerpo de la tarjeta
+        const cardBody = document.createElement('div');
+        cardBody.className = 'card-body';
+        
+        const cardTitle = document.createElement('h5');
+        cardTitle.className = 'card-title';
+        cardTitle.textContent = image.name;
+        
+        const cardText = document.createElement('p');
+        cardText.className = 'card-text';
+        cardText.textContent = image.modified;
+        
+        cardBody.appendChild(cardTitle);
+        cardBody.appendChild(cardText);
+        
+        // Añadir pie de tarjeta con botones
+        const cardFooter = document.createElement('div');
+        cardFooter.className = 'card-footer text-center';
+        
+        // No mostrar botones si la miniatura está pendiente
+        if (!image.pending_thumbnail) {
+            cardFooter.innerHTML = `
+                <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'left')">
+                    <i class="fas fa-undo"></i>
+                </button>
+                <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'right')">
+                    <i class="fas fa-redo"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteImage('${image.name}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+        } else {
+            cardFooter.innerHTML = `
+                <span class="text-muted small">Esperando generación de miniatura...</span>
+            `;
+        }
+        
+        // Ensamblar la tarjeta
+        card.appendChild(cardBody);
+        card.appendChild(cardFooter);
+        col.appendChild(card);
+        imageGrid.appendChild(col);
+    });
+}
+
+// Función para refrescar las imágenes
+function refreshImages() {
     fetch('/refresh')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                setupLazyLoading();
-                updateLastUpdateTime();
+                // Actualizar el tiempo de última actualización
+                document.getElementById('lastUpdateTime').textContent = data.timestamp;
+                
+                // Actualizar la visualización con las nuevas imágenes
+                updateImageDisplay(data.images);
+                
+                // Si hay imágenes pendientes de miniatura, programar una actualización en unos segundos
+                const hasPendingThumbnails = data.images.some(img => img.pending_thumbnail);
+                if (hasPendingThumbnails) {
+                    setTimeout(refreshImages, 3000); // Actualizar cada 3 segundos si hay miniaturas pendientes
+                }
             } else {
-                document.getElementById('imageGrid').innerHTML = 
-                    '<div class="alert alert-danger">Error al cargar las imágenes: ' + data.error + '</div>';
                 console.error('Error al refrescar imágenes:', data.error);
             }
         })
         .catch(error => {
-            document.getElementById('imageGrid').innerHTML = 
-                '<div class="alert alert-danger">Error al conectar con el servidor</div>';
-            console.error('Error al refrescar imágenes:', error);
+            console.error('Error en la solicitud:', error);
         });
 }
 
@@ -1293,14 +1399,33 @@ function updatePdfTable(pdfs) {
 // Configuración de controles específicos
 function setupAutoRefresh() {
     const autoRefreshSwitch = document.getElementById('autoRefreshSwitch');
+    
     if (autoRefreshSwitch) {
-        autoRefreshSwitch.addEventListener('change', function() {
-            if (this.checked) {
-                startFolderMonitoring();
+        let refreshInterval;
+        
+        // Función para iniciar/detener el intervalo de actualización
+        function toggleAutoRefresh() {
+            if (autoRefreshSwitch.checked) {
+                refreshInterval = setInterval(refreshImages, 5000); // Actualizar cada 5 segundos
+                refreshImages(); // Actualizar inmediatamente al activar
             } else {
-                clearInterval(window.folderCheckInterval);
+                clearInterval(refreshInterval);
             }
-        });
+        }
+        
+        // Configurar evento de cambio
+        autoRefreshSwitch.addEventListener('change', toggleAutoRefresh);
+        
+        // Iniciar si está marcado por defecto
+        if (autoRefreshSwitch.checked) {
+            toggleAutoRefresh();
+        }
+        
+        // Configurar botón de actualización manual
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', refreshImages);
+        }
     }
 }
 
