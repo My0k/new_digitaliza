@@ -1,0 +1,75 @@
+// Función para extraer el código de proyecto del OCR
+function extractProjectCode() {
+    // Obtener la carpeta seleccionada
+    const folderSelect = document.getElementById('folderSelect');
+    const folderId = folderSelect.value;
+    
+    // Validar que se haya seleccionado una carpeta
+    if (!folderId) {
+        alert('Por favor, seleccione una carpeta primero');
+        return;
+    }
+    
+    // Cambiar el botón a estado de carga
+    const button = document.getElementById('indexDocumentBtn');
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Extrayendo código...';
+    
+    // Llamar al endpoint para extraer el código de proyecto
+    fetch(`/extract_project_code?folder=${folderId}`)
+        .then(response => response.json())
+        .then(data => {
+            // Restaurar el botón
+            button.disabled = false;
+            
+            if (data.success && data.project_code) {
+                // Precargar el código en el input
+                document.getElementById('projectCode').value = data.project_code;
+                
+                // Cambiar el botón para mostrar éxito
+                button.classList.remove('btn-primary');
+                button.classList.add('btn-success');
+                button.innerHTML = '<i class="fas fa-check-circle me-2"></i> Código Encontrado';
+                
+                // Opcional: mensaje de éxito
+                console.log('Código encontrado:', data.project_code);
+            } else {
+                // CAMBIO: Usar el nombre de la carpeta como código de proyecto
+                document.getElementById('projectCode').value = folderId;
+                
+                // Cambiar el botón para mostrar advertencia
+                button.classList.remove('btn-primary');
+                button.classList.add('btn-warning');
+                button.innerHTML = '<i class="fas fa-info-circle me-2"></i> Usando nombre de carpeta';
+                
+                // Mensaje informativo en lugar de error
+                console.log('Usando nombre de carpeta como código:', folderId);
+            }
+            
+            // Restaurar el botón después de 3 segundos
+            setTimeout(() => {
+                button.classList.remove('btn-success', 'btn-warning');
+                button.classList.add('btn-primary');
+                button.innerHTML = originalText;
+            }, 3000);
+        })
+        .catch(error => {
+            console.error('Error al extraer código:', error);
+            
+            // CAMBIO: En caso de error, usar el nombre de la carpeta
+            document.getElementById('projectCode').value = folderId;
+            
+            button.disabled = false;
+            button.classList.remove('btn-primary');
+            button.classList.add('btn-warning');
+            button.innerHTML = '<i class="fas fa-info-circle me-2"></i> Usando nombre de carpeta';
+            
+            // Restaurar el botón después de 3 segundos
+            setTimeout(() => {
+                button.classList.remove('btn-warning', 'btn-danger');
+                button.classList.add('btn-primary');
+                button.innerHTML = originalText;
+            }, 3000);
+        });
+} 

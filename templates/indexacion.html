@@ -60,7 +60,7 @@
                 
                 <div class="d-grid gap-2">
                     <button type="button" id="indexDocumentBtn" class="btn btn-primary btn-lg">
-                        <i class="fas fa-save me-2"></i> Indexar Documento
+                        <i class="fas fa-search me-2"></i> Extraer Código
                     </button>
                 </div>
             </form>
@@ -73,23 +73,120 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         setActiveMode('indexation');
-        loadFolders();
+        
+        // Obtener el ID de carpeta de la URL si está presente
+        const pathSegments = window.location.pathname.split('/');
+        const urlFolderId = pathSegments.length > 2 ? pathSegments[2] : null;
+        
+        // Cargar carpetas (pasando el ID de carpeta de la URL si existe)
+        loadFolders(urlFolderId);
         
         // Actualización para mostrar mensaje cuando no hay carpetas por indexar
         document.getElementById('folderSelect').addEventListener('change', function() {
+            const selectedFolder = this.value;
+            
             if (this.options.length <= 1) {
                 document.getElementById('folderImageGrid').innerHTML = 
                     '<div class="col-12"><div class="alert alert-info">No hay carpetas pendientes por indexar.</div></div>';
             }
+            
+            // Actualizar la URL cuando se cambia la carpeta seleccionada
+            if (selectedFolder) {
+                const newUrl = `/indexacion/${selectedFolder}/`;
+                history.pushState({}, '', newUrl);
+                
+                // Usar el nombre de la carpeta como código de proyecto predeterminado
+                document.getElementById('projectCode').value = selectedFolder;
+            } else {
+                history.pushState({}, '', '/indexacion');
+            }
         });
         
+        // Configurar el botón para extraer código de proyecto
         document.getElementById('indexDocumentBtn').addEventListener('click', function() {
-            generateIndexedPdf();
+            extractProjectCode();
         });
     });
     
+    // Función para extraer el código de proyecto del OCR
+    function extractProjectCode() {
+        // Obtener la carpeta seleccionada
+        const folderSelect = document.getElementById('folderSelect');
+        const folderId = folderSelect.value;
+        
+        // Validar que se haya seleccionado una carpeta
+        if (!folderId) {
+            alert('Por favor, seleccione una carpeta primero');
+            return;
+        }
+        
+        // Cambiar el botón a estado de carga
+        const button = document.getElementById('indexDocumentBtn');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Extrayendo código...';
+        
+        // Llamar al endpoint para extraer el código de proyecto
+        fetch(`/extract_project_code?folder=${folderId}`)
+            .then(response => response.json())
+            .then(data => {
+                // Restaurar el botón
+                button.disabled = false;
+                
+                if (data.success && data.project_code) {
+                    // Precargar el código en el input
+                    document.getElementById('projectCode').value = data.project_code;
+                    
+                    // Cambiar el botón para mostrar éxito
+                    button.classList.remove('btn-primary');
+                    button.classList.add('btn-success');
+                    button.innerHTML = '<i class="fas fa-check-circle me-2"></i> Código Encontrado';
+                    
+                    // Opcional: mensaje de éxito
+                    console.log('Código encontrado:', data.project_code);
+                } else {
+                    // No establecer ningún valor por defecto cuando no se encuentra un código
+                    document.getElementById('projectCode').value = '';
+                    
+                    // Cambiar el botón para mostrar advertencia
+                    button.classList.remove('btn-primary');
+                    button.classList.add('btn-warning');
+                    button.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> No se encontró código';
+                    
+                    console.log('No se encontró código en OCR');
+                }
+                
+                // Restaurar el botón después de 3 segundos
+                setTimeout(() => {
+                    button.classList.remove('btn-success', 'btn-warning');
+                    button.classList.add('btn-primary');
+                    button.innerHTML = originalText;
+                }, 3000);
+            })
+            .catch(error => {
+                console.error('Error al extraer código:', error);
+                button.disabled = false;
+                button.classList.remove('btn-primary');
+                button.classList.add('btn-danger');
+                button.innerHTML = '<i class="fas fa-times-circle me-2"></i> Error';
+                
+                // No establecer ningún valor por defecto en caso de error
+                document.getElementById('projectCode').value = '';
+                
+                // Alerta de error
+                alert('Error al procesar la solicitud.');
+                
+                // Restaurar el botón después de 3 segundos
+                setTimeout(() => {
+                    button.classList.remove('btn-danger');
+                    button.classList.add('btn-primary');
+                    button.innerHTML = originalText;
+                }, 3000);
+            });
+    }
+    
     // Función para cargar carpetas no indexadas
-    function loadFolders() {
+    function loadFolders(specificFolderId = null) {
         // Mostrar indicador de carga en el selector de carpetas
         const folderSelect = document.getElementById('folderSelect');
         if (folderSelect) {
@@ -101,11 +198,22 @@
         document.getElementById('folderImageGrid').innerHTML = 
             '<div class="col-12 text-center"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Cargando carpetas...</p></div>';
         
+        // Preparar URL con parámetros
+        let url = '/get_folders?exclude_indexed=true';
+        if (specificFolderId) {
+            url += `&folder=${specificFolderId}`;
+        }
+        
         // Llamar al endpoint modificado que filtra carpetas ya indexadas
-        fetch('/get_folders?exclude_indexed=true')
+        fetch(url)
             .then(response => response.json())
             .then(data => {
                 updateFolderSelect(data.folders, data.current_folder);
+                
+                // Si hay una carpeta seleccionada, precargar su nombre como código de proyecto
+                if (data.current_folder) {
+                    document.getElementById('projectCode').value = data.current_folder;
+                }
                 
                 // Mostrar mensaje apropiado si no hay carpetas
                 if (data.folders && data.folders.length > 0) {
@@ -131,71 +239,6 @@
                     folderSelect.disabled = false;
                 }
             });
-    }
-    
-    // Sobrescribir la función generateIndexedPdf para incluir recarga de página
-    function generateIndexedPdf() {
-        // Obtener valores del formulario
-        const projectCode = document.getElementById('projectCode').value.trim();
-        const boxNumber = document.getElementById('boxNumber').value.trim();
-        const documentPresent = document.querySelector('input[name="documentPresent"]:checked').value;
-        const observation = document.getElementById('observation').value.trim();
-        const folderSelect = document.getElementById('folderSelect');
-        const folderId = folderSelect.value;
-        
-        // Validaciones
-        if (!projectCode) {
-            alert('Por favor, ingrese un código de proyecto válido');
-            return;
-        }
-        
-        if (!folderId) {
-            alert('Por favor, seleccione una carpeta');
-            return;
-        }
-        
-        // Mostrar indicador de carga
-        const indexBtn = document.getElementById('indexDocumentBtn');
-        const originalBtnText = indexBtn.innerHTML;
-        indexBtn.disabled = true;
-        indexBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
-        
-        // Crear FormData para enviar
-        const formData = new FormData();
-        formData.append('project_code', projectCode);
-        formData.append('box_number', boxNumber);
-        formData.append('document_present', documentPresent);
-        formData.append('observation', observation);
-        formData.append('folder_id', folderId);
-        formData.append('folder_name', folderId); // Usar el ID como nombre
-        
-        // Realizar la solicitud para indexar
-        fetch('/actualizar_indexacion', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('Documento indexado correctamente');
-                
-                // Recargar la página después de indexar exitosamente
-                window.location.reload();
-            } else {
-                alert('Error: ' + data.error);
-                // Restaurar botón
-                indexBtn.disabled = false;
-                indexBtn.innerHTML = originalBtnText;
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error al procesar la solicitud');
-            
-            // Restaurar botón
-            indexBtn.disabled = false;
-            indexBtn.innerHTML = originalBtnText;
-        });
     }
 </script>
 {% endblock %} 

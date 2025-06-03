@@ -22,7 +22,8 @@ import functools
 import pandas as pd
 from io import BytesIO
 import hashlib
-from functions.indexacion import generate_folder_name, create_new_folder
+from functions.boton_indexacion import generate_folder_name, create_new_folder
+import re
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
@@ -278,11 +279,12 @@ def digitalizacion():
         return render_template('error.html', error=str(e))
 
 @app.route('/indexacion')
+@app.route('/indexacion/<folder_id>/')
 @login_required
-def indexacion():
+def indexacion(folder_id=None):
     """Vista de indexación de documentos."""
     try:
-        return render_template('indexacion.html', active_page='indexacion')
+        return render_template('indexacion.html', active_page='indexacion', folder_id=folder_id)
     except Exception as e:
         logger.error(f"Error al cargar indexación: {str(e)}")
         import traceback
@@ -1336,22 +1338,40 @@ def get_folders():
         # Si se solicita excluir carpetas indexadas, cargar la lista de carpetas indexadas
         if exclude_indexed:
             indexed_folders = []
+            ocr_generated_folders = []
             carpetas_csv = 'carpetas.csv'
             
             if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
                 try:
                     with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
                         reader = csv.reader(csvfile)
-                        next(reader)  # Saltar encabezados
+                        headers = next(reader)  # Saltar encabezados
+                        
+                        # Obtener índices de las columnas relevantes
+                        carpeta_indexada_idx = headers.index('carpeta_indexada') if 'carpeta_indexada' in headers else -1
+                        ocr_generado_idx = headers.index('ocr_generado') if 'ocr_generado' in headers else -1
+                        
                         for row in reader:
-                            if row and row[0].strip():  # Asegurarse de que la fila no esté vacía
-                                indexed_folders.append(row[0].strip())
+                            if not row:  # Saltar filas vacías
+                                continue
+                                
+                            # Recopilar carpetas indexadas
+                            if carpeta_indexada_idx >= 0 and len(row) > carpeta_indexada_idx and row[carpeta_indexada_idx].strip():
+                                indexed_folders.append(row[carpeta_indexada_idx].strip())
+                            
+                            # Recopilar carpetas con OCR generado
+                            if ocr_generado_idx >= 0 and len(row) > ocr_generado_idx and row[ocr_generado_idx].strip():
+                                ocr_generated_folders.append(row[ocr_generado_idx].strip())
                 except Exception as csv_err:
                     logger.error(f"Error al leer carpetas.csv: {str(csv_err)}")
             
-            # Filtrar las carpetas ya indexadas
-            folders = [f for f in folders if f not in indexed_folders]
-            logger.info(f"Mostrando {len(folders)} carpetas no indexadas de un total de {len(folders) + len(indexed_folders)}")
+            # Mostrar solo carpetas que tienen OCR generado pero no están indexadas
+            pending_folders = [f for f in ocr_generated_folders if f not in indexed_folders]
+            
+            # Filtrar carpetas que existen físicamente y están pendientes de indexar
+            folders = [f for f in folders if f in pending_folders]
+            
+            logger.info(f"Mostrando {len(folders)} carpetas con OCR pendientes de indexar")
         
         # Determinar la carpeta actual (del parámetro o la primera disponible)
         folder_id = request.args.get('folder', folders[0] if folders else None)
@@ -1841,6 +1861,91 @@ def view_pdf():
     except Exception as e:
         logger.error(f"Error al mostrar PDF: {str(e)}")
         return "Error al mostrar el PDF", 500
+
+@app.route('/extract_project_code')
+@login_required
+def extract_project_code():
+    """Extrae el código de proyecto del PDF OCR de una carpeta."""
+    try:
+        folder_id = request.args.get('folder')
+        if not folder_id:
+            return jsonify({
+                'success': False,
+                'error': 'No se especificó ninguna carpeta'
+            }), 400
+        
+        # Importar la función desde el módulo
+        from functions.boton_indexacion import extract_project_code_from_ocr
+        
+        # Llamar a la función para extraer el código
+        result = extract_project_code_from_ocr(folder_id)
+        
+        return jsonify(result)
+    except Exception as e:
+        error_msg = f"Error al extraer código de proyecto: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+def extract_project_code_from_ocr(folder_name):
+    """
+    Extrae el código de proyecto del PDF OCR usando una expresión regular.
+    
+    Args:
+        folder_name (str): Nombre de la carpeta
+        
+    Returns:
+        dict: Resultado de la operación con el código encontrado o un error
+    """
+    try:
+        # Verificar que el archivo PDF existe
+        pdf_path = f"pdf_procesado/{folder_name}.pdf"
+        if not os.path.exists(pdf_path):
+            return {
+                'success': False,
+                'error': f"No se encontró el archivo PDF con OCR: {pdf_path}"
+            }
+        
+        # Abrir el PDF y extraer el texto
+        text = ""
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            for page_num in range(len(reader.pages)):
+                page = reader.pages[page_num]
+                text += page.extract_text()
+        
+        # Buscar el código de proyecto con la expresión regular
+        pattern = r'\b23\d{2}[A-Z]{1,2}\d{4}\b'
+        matches = re.findall(pattern, text)
+        
+        if matches:
+            # Devolver el primer código encontrado
+            return {
+                'success': True,
+                'project_code': matches[0],
+                'message': f"Código de proyecto encontrado: {matches[0]}"
+            }
+        else:
+            return {
+                'success': False,
+                'error': "No se encontró ningún código de proyecto en el documento"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error al extraer código de proyecto: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        
+        return {
+            'success': False,
+            'error': str(e),
+            'traceback': error_trace,
+            'message': f"Error al procesar el PDF: {str(e)}"
+        }
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
