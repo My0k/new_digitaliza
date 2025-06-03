@@ -2033,6 +2033,46 @@ def extract_project_code_from_ocr(folder_name):
             'message': f"Error al procesar el PDF: {str(e)}"
         }
 
+def generate_folder_name():
+    """Genera un nombre único para una carpeta con prefijo y número correlativo."""
+    base_dir = 'proceso/carpetas'
+    os.makedirs(base_dir, exist_ok=True)
+    
+    # Obtener todas las carpetas existentes
+    existing_folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+    
+    # Extraer números correlativos usando expresión regular
+    import re
+    pattern = r'_(\d+)$'  # Busca _XXX al final del nombre
+    correlative_numbers = []
+    
+    for folder in existing_folders:
+        match = re.search(pattern, folder)
+        if match:
+            try:
+                correlative_numbers.append(int(match.group(1)))
+            except ValueError:
+                pass
+    
+    # Determinar el siguiente número correlativo
+    next_number = 1  # Valor predeterminado si no hay carpetas
+    if correlative_numbers:
+        next_number = max(correlative_numbers) + 1
+    
+    # Generar un prefijo único (ejemplo: usando hash MD5 de timestamp)
+    import hashlib
+    import time
+    timestamp = str(time.time())
+    prefix = hashlib.md5(timestamp.encode()).hexdigest()[:6].upper()
+    
+    # Formatear el número correlativo con ceros a la izquierda (3 dígitos)
+    formatted_number = f"{next_number:03d}"
+    
+    # Combinar para crear el nombre de carpeta
+    folder_name = f"{prefix}_{formatted_number}"
+    
+    return folder_name
+
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
     os.makedirs('templates', exist_ok=True)
