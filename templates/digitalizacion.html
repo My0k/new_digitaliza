@@ -92,6 +92,32 @@
             console.log("Botón Mostrar todas las imágenes clickeado");
             showingAllImages = true;  // Establecer explícitamente a true
             
+            // Desactivar el refresh automático si está activado
+            const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+            if (autoRefreshToggle.checked) {
+                console.log("Desactivando refresh automático al mostrar todas las imágenes");
+                autoRefreshToggle.checked = false;
+                
+                // Disparar el evento change para que se ejecute el código de desactivación
+                const changeEvent = new Event('change');
+                autoRefreshToggle.dispatchEvent(changeEvent);
+                
+                // También podemos mostrar un mensaje al usuario
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-info alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <small>Refresh automático desactivado para permitir ver todas las imágenes</small>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('showMoreContainer').appendChild(notification);
+                
+                // Auto-ocultar la notificación después de 5 segundos
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => notification.remove(), 5000);
+                }, 5000);
+            }
+            
             // Cambiar el botón a estado de carga
             this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Cargando...';
             this.disabled = true;
