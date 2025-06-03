@@ -1471,125 +1471,185 @@ def serve_pdf(filename):
 @app.route('/actualizar_indexacion', methods=['POST'])
 @login_required
 def actualizar_indexacion():
-    """Actualiza la información de indexación en el CSV."""
+    """Actualiza los archivos CSV con la información de indexación."""
     try:
         # Obtener datos del formulario
-        folder_id = request.form.get('folder_id')
-        project_code = request.form.get('project_code')
-        box_number = request.form.get('box_number', 'N/A')
-        document_present = request.form.get('document_present', 'NO')
-        observation = request.form.get('observation', '')
-        folder_name = request.form.get('folder_name', '')  # Nombre de la carpeta (ya sin el prefijo "Carpeta ")
+        data = request.json
+        project_code = data.get('projectCode')
+        box_number = data.get('boxNumber')
+        document_present = data.get('documentPresent')
+        observation = data.get('observation')
+        folder_id = data.get('folderId')
         
-        # Validar que exista el código de proyecto
         if not project_code:
-            return jsonify({'success': False, 'error': 'No se proporcionó código de proyecto'}), 400
+            return jsonify({
+                'success': False,
+                'error': 'Falta código de proyecto'
+            }), 400
         
-        # 1. Actualizar db_input.csv
-        # Ruta al archivo CSV
-        csv_path = 'db_input.csv'
+        if not folder_id:
+            return jsonify({
+                'success': False,
+                'error': 'Falta ID de carpeta'
+            }), 400
         
-        # Leer el CSV actual para encontrar la fila a actualizar
+        # Definir rutas de archivos
+        db_input_path = 'db_input.csv'
+        carpetas_path = 'carpetas.csv'
+        ocr_pdf_path = f'ocr_generado/{folder_id}.pdf'
+        
+        # Verificar si el archivo PDF existe
+        if not os.path.exists(ocr_pdf_path):
+            # Intentar otras ubicaciones
+            alt_paths = [
+                f'pdf_procesado/{folder_id}.pdf',
+                f'proceso/ocr_generado/{folder_id}.pdf'
+            ]
+            
+            for path in alt_paths:
+                if os.path.exists(path):
+                    ocr_pdf_path = path
+                    break
+            else:
+                # No se encontró el PDF en ninguna ubicación
+                logger.warning(f"No se encontró el PDF para la carpeta {folder_id}")
+                # Continuar de todos modos, pero registrar la advertencia
+        
+        # Actualizar db_input.csv
+        db_input_updated = False
+        
+        # Crear el archivo si no existe
+        if not os.path.exists(db_input_path):
+            with open(db_input_path, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['YEAR', 'TIPO_SUBVENCION', 'CODIGO', 'NOMBRE_INICIATIVA', 
+                               'PROVINCIA', 'COMUNA', 'RUT_INSTITUCION', 'NOMBRE_INSTITUCION', 
+                               'ID', 'CAJA', 'UBICACION', 'DOC_PRESENTE', 'OBSERVACION', 
+                               'PDF_PATH', 'INDEXADO', 'CARPETA'])
+        
+        # Leer el archivo
         rows = []
-        found = False
+        with open(db_input_path, 'r', newline='') as file:
+            reader = csv.reader(file)
+            header = next(reader)  # Guardar el encabezado
+            
+            # Buscar el índice de las columnas necesarias
+            codigo_idx = header.index('CODIGO') if 'CODIGO' in header else -1
+            caja_idx = header.index('CAJA') if 'CAJA' in header else -1
+            doc_presente_idx = header.index('DOC_PRESENTE') if 'DOC_PRESENTE' in header else -1
+            observacion_idx = header.index('OBSERVACION') if 'OBSERVACION' in header else -1
+            pdf_path_idx = header.index('PDF_PATH') if 'PDF_PATH' in header else -1
+            indexado_idx = header.index('INDEXADO') if 'INDEXADO' in header else -1
+            carpeta_idx = header.index('CARPETA') if 'CARPETA' in header else -1
+            
+            if codigo_idx == -1 or caja_idx == -1 or doc_presente_idx == -1 or observacion_idx == -1 or pdf_path_idx == -1 or indexado_idx == -1 or carpeta_idx == -1:
+                return jsonify({
+                    'success': False,
+                    'error': 'Estructura de archivo db_input.csv incorrecta'
+                }), 500
+            
+            # Leer todas las filas
+            for row in reader:
+                if len(row) > codigo_idx and row[codigo_idx] == project_code:
+                    # Actualizar fila existente
+                    row[caja_idx] = box_number
+                    row[doc_presente_idx] = document_present
+                    row[observacion_idx] = observation
+                    row[pdf_path_idx] = ocr_pdf_path
+                    row[indexado_idx] = 'SI'
+                    row[carpeta_idx] = folder_id
+                    db_input_updated = True
+                rows.append(row)
         
-        if os.path.exists(csv_path):
-            with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
-                reader = csv.reader(csvfile)
-                headers = next(reader)  # Guardar encabezados
-                
-                # Asegurarse de que existe la columna CARPETA
-                if 'CARPETA' not in headers:
-                    headers.append('CARPETA')
-                
-                # Obtener los índices de las columnas que necesitamos actualizar
-                carpeta_index = headers.index('CARPETA')
-                caja_index = 9 if len(headers) > 9 else -1
-                doc_presente_index = 11 if len(headers) > 11 else -1
-                observacion_index = 12 if len(headers) > 12 else -1
-                indexado_index = 14 if len(headers) > 14 else -1
-                
-                for row in reader:
-                    # Asegurarse de que la fila tenga al menos 3 columnas para verificar el código
-                    if len(row) >= 3 and row[2] == project_code:
-                        # Expandir la fila si es necesario para acomodar todas las columnas
-                        while len(row) <= max(carpeta_index, caja_index, doc_presente_index, observacion_index, indexado_index):
-                            row.append('')
-                            
-                        # Actualizar la fila existente
-                        found = True
-                        # Actualizar valores en columnas específicas
-                        if caja_index >= 0:
-                            row[caja_index] = box_number  # CAJA
-                        if doc_presente_index >= 0:
-                            row[doc_presente_index] = document_present  # DOC_PRESENTE
-                        if observacion_index >= 0:
-                            row[observacion_index] = observation  # OBSERVACION
-                        if indexado_index >= 0:
-                            row[indexado_index] = 'SI'  # INDEXADO
-                        
-                        # Guardar el nombre de la carpeta (sin prefijo "Carpeta ")
-                        row[carpeta_index] = folder_name
-                        
-                    rows.append(row)
-        else:
-            # Si el archivo no existe, crear encabezados
-            headers = ['YEAR', 'TIPO_SUBVENCION', 'CODIGO', 'NOMBRE_INICIATIVA', 'PROVINCIA', 
-                      'COMUNA', 'RUT_INSTITUCION', 'NOMBRE_INSTITUCION', 'ID', 'CAJA', 
-                      'UBICACION', 'DOC_PRESENTE', 'OBSERVACION', 'PDF_PATH', 'INDEXADO', 'CARPETA']
+        # Si no se encontró el código, agregar una nueva fila
+        if not db_input_updated:
+            new_row = [''] * len(header)
+            new_row[codigo_idx] = project_code
+            new_row[caja_idx] = box_number
+            new_row[doc_presente_idx] = document_present
+            new_row[observacion_idx] = observation
+            new_row[pdf_path_idx] = ocr_pdf_path
+            new_row[indexado_idx] = 'SI'
+            new_row[carpeta_idx] = folder_id
+            rows.append(new_row)
         
-        # Si no se encontró la fila, agregar mensaje de error
-        if not found:
-            return jsonify({'success': False, 'error': f'No se encontró el código de proyecto {project_code} en el CSV'}), 404
-        
-        # Escribir el CSV actualizado
-        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(headers)
+        # Escribir los cambios
+        with open(db_input_path, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(header)
             writer.writerows(rows)
         
-        # 2. Actualizar carpetas.csv
-        carpetas_csv = 'carpetas.csv'
+        # Actualizar carpetas.csv
+        carpetas_updated = False
+        
+        # Crear el archivo si no existe
+        if not os.path.exists(carpetas_path):
+            with open(carpetas_path, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['carpeta_indexada', 'ocr_generado'])
+        
+        # Leer el archivo
         carpetas_rows = []
-        carpeta_found = False
+        folder_in_list = False
+        with open(carpetas_path, 'r', newline='') as file:
+            reader = csv.reader(file)
+            carpetas_header = next(reader)  # Guardar el encabezado
+            
+            # Buscar el índice de las columnas necesarias
+            indexada_idx = carpetas_header.index('carpeta_indexada') if 'carpeta_indexada' in carpetas_header else -1
+            ocr_generado_idx = carpetas_header.index('ocr_generado') if 'ocr_generado' in carpetas_header else -1
+            
+            if indexada_idx == -1 or ocr_generado_idx == -1:
+                return jsonify({
+                    'success': False,
+                    'error': 'Estructura de archivo carpetas.csv incorrecta'
+                }), 500
+            
+            # Leer todas las filas
+            for row in reader:
+                if len(row) > ocr_generado_idx and row[ocr_generado_idx] == folder_id:
+                    # Actualizar fila existente: poner el ID de carpeta en carpeta_indexada
+                    row[indexada_idx] = folder_id  # Aquí cambiamos project_code por folder_id
+                    folder_in_list = True
+                    carpetas_updated = True
+                carpetas_rows.append(row)
         
-        # Verificar si el archivo existe y tiene contenido
-        if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
-            with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
-                reader = csv.reader(csvfile)
-                carpetas_headers = next(reader)  # Guardar encabezados
-                
-                # Leer filas existentes y buscar si la carpeta ya está registrada
-                for row in reader:
-                    if row and row[0] == folder_name:
-                        carpeta_found = True
-                    carpetas_rows.append(row)
-                
-        else:
-            # Si el archivo no existe o está vacío, crear encabezados
-            carpetas_headers = ['carpeta_indexada']
+        # Si no se encontró la carpeta, agregar una nueva fila (aunque esto no debería ocurrir)
+        if not folder_in_list:
+            new_row = [''] * len(carpetas_header)
+            new_row[indexada_idx] = folder_id  # Aquí cambiamos project_code por folder_id
+            new_row[ocr_generado_idx] = folder_id
+            carpetas_rows.append(new_row)
+            carpetas_updated = True
         
-        # Si la carpeta no está registrada, añadirla
-        if not carpeta_found:
-            carpetas_rows.append([folder_name])
-        
-        # Escribir el archivo carpetas.csv actualizado
-        with open(carpetas_csv, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(carpetas_headers)
+        # Escribir los cambios
+        with open(carpetas_path, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(carpetas_header)
             writer.writerows(carpetas_rows)
+        
+        # Registrar información
+        logger.info(f"Indexación completada para carpeta {folder_id}")
+        logger.info(f"Código de Proyecto: {project_code}")
+        logger.info(f"Número de Caja: {box_number}")
+        logger.info(f"Documento Presente: {document_present}")
+        logger.info(f"Observación: {observation}")
+        logger.info(f"Archivo db_input.csv {'actualizado' if db_input_updated else 'con nueva entrada'}")
+        logger.info(f"Archivo carpetas.csv actualizado: ID carpeta {folder_id} registrado como indexado")
         
         return jsonify({
             'success': True,
             'message': 'Documento indexado correctamente'
-        }), 200
-        
+        })
     except Exception as e:
         error_msg = f"Error al actualizar indexación: {str(e)}"
         logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'error': error_msg}), 500
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
 
 @app.route('/procesar')
 @login_required
