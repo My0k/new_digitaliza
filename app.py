@@ -61,6 +61,7 @@ def get_latest_images(folder='input', count=None):
         files = glob.glob(os.path.join(folder, '*.jpg')) + glob.glob(os.path.join(folder, '*.jpeg'))
         # Ordenar archivos por fecha de modificación (más reciente primero)
         files.sort(key=os.path.getmtime, reverse=True)
+        # Si se especificó un límite, devolver solo ese número de archivos
         return files[:count] if count is not None else files
     except Exception as e:
         logger.error(f"Error al obtener imágenes: {e}")
@@ -263,15 +264,9 @@ def index():
 def digitalizacion():
     """Vista de digitalización de documentos."""
     try:
-        # Obtener las imágenes más recientes
-        images = get_latest_images()
-        
-        # Transformar imágenes para la interfaz
-        image_data = []
-        for img_path in images:
-            image_data.append(get_image_data(img_path))
-        
-        return render_template('digitalizacion.html', images=image_data, active_page='digitalizacion')
+        # No enviamos imágenes iniciales desde el servidor, dejaremos que el cliente las solicite
+        # para asegurar consistencia
+        return render_template('digitalizacion.html', active_page='digitalizacion')
     except Exception as e:
         logger.error(f"Error al cargar digitalización: {str(e)}")
         import traceback
@@ -360,39 +355,70 @@ def upload_file():
 @app.route('/refresh')
 @login_required
 def refresh_images():
-    """Actualiza la lista de imágenes en la carpeta de entrada."""
+    """Obtiene las imágenes más recientes en la carpeta de entrada."""
     try:
-        # Parámetros opcionales para paginación
-        offset = request.args.get('offset', default=0, type=int)
-        limit = request.args.get('limit', default=None, type=int)
+        # Obtener parámetro de límite (cuántas imágenes mostrar)
+        limit = request.args.get('limit', type=int)
         
-        # Obtener todas las imágenes, aplicar paginación si se solicita
-        images = get_latest_images()
+        # Obtener parámetro de ordenación (creación vs modificación)
+        sort_by = request.args.get('sort_by', 'modification')
         
-        # Si se especificó un límite, aplicar paginación
-        if limit is not None:
-            images = images[offset:offset+limit]
+        # Obtener todas las imágenes de la carpeta input
+        folder = app.config['UPLOAD_FOLDER']
+        files = glob.glob(os.path.join(folder, '*.jpg')) + glob.glob(os.path.join(folder, '*.jpeg'))
         
-        # Transformar imágenes para la interfaz
+        # Obtener el total de imágenes antes de aplicar límites
+        total_images = len(files)
+        
+        # Log para depuración
+        logger.debug(f"Refresh: Encontradas {total_images} imágenes, limit={limit}, sort_by={sort_by}")
+        
+        # Ordenar archivos según el criterio especificado
+        if sort_by == 'creation':
+            files.sort(key=os.path.getctime, reverse=True)
+        else:
+            files.sort(key=os.path.getmtime, reverse=True)
+        
+        # Aplicar límite si se especificó
+        if limit and limit > 0:
+            limited_files = files[:limit]
+            logger.debug(f"Aplicando límite: mostrando {len(limited_files)} de {total_images} imágenes")
+            files = limited_files
+        else:
+            logger.debug(f"Sin límite: mostrando todas las {total_images} imágenes")
+        
+        # Imprimir los nombres de archivos y sus tiempos de modificación para depuración
+        debug_info = []
+        for f in files:
+            mtime = os.path.getmtime(f)
+            debug_info.append(f"{os.path.basename(f)}: {datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        logger.debug(f"Imágenes ordenadas por mtime (más reciente primero): {debug_info}")
+        
+        # Obtener datos para cada imagen
         image_data = []
-        for img_path in images:
-            img_info = get_image_data(img_path)
-            if img_info:  # Solo incluir si la imagen se pudo cargar
-                image_data.append(img_info)
+        for img_path in files:
+            img_data = get_image_data(img_path)
+            if img_data:
+                image_data.append(img_data)
+        
+        # Obtener timestamp actual para indicar cuándo se actualizó
+        timestamp = datetime.now().strftime('%H:%M:%S')
         
         return jsonify({
             'success': True,
             'images': image_data,
-            'total': len(get_latest_images()),  # Total de imágenes disponibles
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': timestamp,
+            'total': total_images
         })
     except Exception as e:
-        logger.error(f"Error al refrescar imágenes: {str(e)}")
+        error_msg = f"Error al refrescar imágenes: {str(e)}"
+        logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': error_msg
         }), 500
 
 @app.route('/check_updates')

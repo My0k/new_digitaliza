@@ -21,30 +21,16 @@
             </div>
         </div>
         <div class="card-body">
+            <!-- Grid de imágenes (2 columnas) -->
             <div id="imageGrid" class="row row-cols-1 row-cols-md-2 g-4">
-                <!-- Las imágenes se cargarán aquí dinámicamente -->
-                {% for image in images %}
-                <div class="col">
-                    <div class="card h-100 image-card">
-                        <img src="{{ image.data }}" class="card-img-top" alt="{{ image.name }}">
-                        <div class="card-body">
-                            <h5 class="card-title">{{ image.name }}</h5>
-                            <p class="card-text">{{ image.modified }}</p>
-                        </div>
-                        <div class="card-footer text-center">
-                            <button class="btn btn-sm btn-info me-1" onclick="rotateImage('{{ image.name }}', 'left')">
-                                <i class="fas fa-undo"></i>
-                            </button>
-                            <button class="btn btn-sm btn-info me-1" onclick="rotateImage('{{ image.name }}', 'right')">
-                                <i class="fas fa-redo"></i>
-                            </button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteImage('{{ image.name }}')">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
+                <!-- Las imágenes se cargarán aquí dinámicamente en 2 columnas -->
+            </div>
+            
+            <!-- Botón para mostrar todas las imágenes -->
+            <div class="text-center mt-4" id="showMoreContainer" style="display: none;">
+                <button id="showAllImagesBtn" class="btn btn-outline-primary">
+                    <i class="fas fa-images me-1"></i> Mostrar todas las imágenes
+                </button>
             </div>
         </div>
     </div>
@@ -57,22 +43,25 @@
         <div class="card-body">
             <!-- Botón de generar carpeta - visible en modo digitalización -->
             <div class="text-center mb-4" id="digitalizationControls">
-                <button id="generateFolderBtn" class="btn btn-success btn-lg w-100">
+                <button id="generateFolderBtn" class="btn btn-success btn-lg w-100" disabled>
                     <i class="fas fa-folder-plus me-2"></i> Crear nueva carpeta
                 </button>
                 <p class="text-muted small mt-2">
                     Este botón creará una carpeta numerada y moverá todas las imágenes actuales a ella.
                 </p>
+                <p class="text-muted small" id="noImagesMessage">
+                    <i class="fas fa-exclamation-circle"></i> No hay imágenes para mover a una carpeta.
+                </p>
             </div>
             
+            <!-- Toggle para refresh automático -->
             <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" id="autoRefreshSwitch" checked>
-                <label class="form-check-label" for="autoRefreshSwitch">Actualización automática</label>
+                <input class="form-check-input" type="checkbox" id="autoRefreshToggle">
+                <label class="form-check-label" for="autoRefreshToggle">Refresh automático</label>
+                <p class="text-muted small mt-1">
+                    Actualizará la página cada 5 segundos para detectar nuevas imágenes.
+                </p>
             </div>
-            
-            <button id="refreshBtn" class="btn btn-secondary w-100 mb-3">
-                <i class="fas fa-sync-alt me-2"></i> Actualizar manualmente
-            </button>
             
             <div class="text-center" id="lastUpdateInfo">
                 <small class="text-muted">Última actualización: <span id="lastUpdateTime">-</span></small>
@@ -84,18 +73,289 @@
 
 {% block extra_scripts %}
 <script>
+    // Variable para controlar si estamos mostrando todas las imágenes o solo las recientes
+    let showingAllImages = false;
+    // Total de imágenes disponibles
+    let totalImages = 0;
+    
     document.addEventListener('DOMContentLoaded', function() {
         // Iniciar para la vista de digitalización
         setActiveMode('digitalization');
-        setupAutoRefresh();
         setupFileUpload();
         setupClearButton();
         
         // Configurar botón para generar carpeta
         document.getElementById('generateFolderBtn').addEventListener('click', generateFolder);
         
-        // Actualizar inicialmente las imágenes
-        refreshImages();
+        // Configurar botón para mostrar todas las imágenes
+        document.getElementById('showAllImagesBtn').addEventListener('click', function() {
+            console.log("Botón Mostrar todas las imágenes clickeado");
+            showingAllImages = true;  // Establecer explícitamente a true
+            
+            // Cambiar el botón a estado de carga
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Cargando...';
+            this.disabled = true;
+            
+            // Forzar una actualización completa
+            refreshImages();
+            
+            // Agregar un mensaje de debug
+            console.log("Después de refreshImages, showingAllImages =", showingAllImages);
+            
+            // El botón se ocultará después de que las imágenes se carguen completamente en el método refreshImages
+            // (no lo ocultamos aquí para mostrar el estado de carga)
+        });
+        
+        // Configurar toggle de refresh automático
+        let autoRefreshInterval = null;
+        const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+        
+        // Recuperar el estado guardado en localStorage
+        const savedAutoRefreshState = localStorage.getItem('autoRefreshEnabled');
+        if (savedAutoRefreshState === 'true') {
+            autoRefreshToggle.checked = true;
+            // Activar refresh automático inmediatamente si estaba activo
+            console.log("Restaurando refresh automático activado");
+            autoRefreshInterval = setInterval(function() {
+                console.log("Realizando refresh automático de la página");
+                
+                // Guardar estado antes de recargar
+                localStorage.setItem('autoRefreshEnabled', 'true');
+                
+                window.location.reload();  // Recarga completa de la página (F5)
+            }, 5000);  // 5 segundos
+        }
+        
+        autoRefreshToggle.addEventListener('change', function() {
+            if (this.checked) {
+                // Activar refresh automático
+                console.log("Refresh automático activado");
+                
+                // Guardar estado en localStorage
+                localStorage.setItem('autoRefreshEnabled', 'true');
+                
+                autoRefreshInterval = setInterval(function() {
+                    console.log("Realizando refresh automático de la página");
+                    window.location.reload();  // Recarga completa de la página (F5)
+                }, 5000);  // 5 segundos
+            } else {
+                // Desactivar refresh automático
+                console.log("Refresh automático desactivado");
+                
+                // Guardar estado en localStorage
+                localStorage.setItem('autoRefreshEnabled', 'false');
+                
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        });
+        
+        // Asegurarse de limpiar el intervalo si el usuario sale de la página
+        window.addEventListener('beforeunload', function() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        });
+        
+        // Actualizar inmediatamente las imágenes al cargar la página
+        // Por defecto solo muestra las 4 más recientes
+        showingAllImages = false;
+        
+        // Agregamos un pequeño delay para asegurar que todo esté listo
+        setTimeout(function() {
+            console.log("Cargando imágenes iniciales...");
+            refreshImages();
+        }, 100);
+        
+        // Verificar periódicamente si hay imágenes para habilitar/deshabilitar el botón
+        setInterval(checkImagesForFolder, 2000);
     });
+    
+    // Función para verificar si hay imágenes y actualizar el estado del botón
+    function checkImagesForFolder() {
+        const imageCount = document.querySelectorAll('.image-card').length;
+        const generateBtn = document.getElementById('generateFolderBtn');
+        const noImagesMsg = document.getElementById('noImagesMessage');
+        
+        if (imageCount > 0) {
+            generateBtn.disabled = false;
+            noImagesMsg.style.display = 'none';
+        } else {
+            generateBtn.disabled = true;
+            noImagesMsg.style.display = 'block';
+        }
+    }
+    
+    // Función para actualizar la cuadrícula de imágenes
+    function updateImageGrid(images) {
+        const grid = document.getElementById('imageGrid');
+        grid.innerHTML = '';
+        
+        // Si no hay imágenes
+        if (!images || images.length === 0) {
+            grid.innerHTML = '<div class="col-12 text-center p-5"><p>No hay imágenes disponibles</p></div>';
+            return;
+        }
+        
+        console.log("Actualizando grid con " + images.length + " imágenes");
+        
+        // Mostrar las imágenes en la cuadrícula (en 2 columnas)
+        images.forEach(image => {
+            const col = document.createElement('div');
+            col.className = 'col';
+            
+            const imageDisplay = image.data || 'static/img/loading.gif';
+            const loadingText = image.data ? '' : '<div class="text-center p-2 bg-light">Cargando miniatura...</div>';
+            
+            col.innerHTML = `
+                <div class="card h-100 image-card">
+                    <img src="${imageDisplay}" class="card-img-top" alt="${image.name}">
+                    ${loadingText}
+                    <div class="card-body">
+                        <h5 class="card-title">${image.name}</h5>
+                        <p class="card-text">${image.modified}</p>
+                    </div>
+                    <div class="card-footer text-center">
+                        <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'left')">
+                            <i class="fas fa-undo"></i>
+                        </button>
+                        <button class="btn btn-sm btn-info me-1" onclick="rotateImage('${image.name}', 'right')">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteImage('${image.name}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Añadimos la imagen al grid
+            grid.appendChild(col);
+        });
+    }
+    
+    // Función para refrescar las imágenes
+    function refreshImages(resetView = false) {
+        // Si se pide resetear la vista, volvemos a mostrar solo las recientes
+        if (resetView) {
+            showingAllImages = false;
+            document.getElementById('showMoreContainer').style.display = 'block';
+            const showAllBtn = document.getElementById('showAllImagesBtn');
+            showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
+            showAllBtn.disabled = false;
+        }
+
+        // Determinar si mostrar todas las imágenes o solo las 4 más recientes
+        const limit = showingAllImages ? null : 4;
+        
+        console.log(`Solicitando imágenes ${limit ? 'con límite ' + limit : 'sin límite'} (showingAllImages=${showingAllImages})`);
+        
+        // Asegurarse de que cuando showingAllImages es true, realmente no se envíe ningún límite
+        let url = '/refresh?sort_by=creation';
+        if (!showingAllImages && limit) {
+            url += `&limit=${limit}`;
+        }
+        
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Recibidas ${data.images.length} imágenes de ${data.total} totales`);
+                    
+                    // Actualizar la vista con las nuevas imágenes
+                    updateImageGrid(data.images);
+                    
+                    // Actualizar la hora de última actualización
+                    document.getElementById('lastUpdateTime').textContent = data.timestamp;
+                    
+                    // Guardar el total de imágenes
+                    totalImages = data.total;
+                    
+                    // Mostrar u ocultar el botón "Mostrar todas" según corresponda
+                    const showMoreContainer = document.getElementById('showMoreContainer');
+                    
+                    if (showingAllImages) {
+                        // Si estamos mostrando todas, ocultamos el contenedor del botón
+                        showMoreContainer.style.display = 'none';
+                    } else if (totalImages > 4) {
+                        // Si no estamos mostrando todas y hay más de 4 imágenes
+                        showMoreContainer.style.display = 'block';
+                        // Asegurarse de que el botón esté en su estado normal
+                        const showAllBtn = document.getElementById('showAllImagesBtn');
+                        showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
+                        showAllBtn.disabled = false;
+                    } else {
+                        // Si hay 4 o menos imágenes, no mostramos el botón
+                        showMoreContainer.style.display = 'none';
+                    }
+                    
+                    // Verificar si hay imágenes para habilitar/deshabilitar el botón de generar carpeta
+                    checkImagesForFolder();
+                } else {
+                    console.error('Error al obtener imágenes:', data.error);
+                    // En caso de error, restaurar el botón para que el usuario pueda intentarlo de nuevo
+                    if (showingAllImages) {
+                        const showAllBtn = document.getElementById('showAllImagesBtn');
+                        if (showAllBtn) {
+                            showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
+                            showAllBtn.disabled = false;
+                            document.getElementById('showMoreContainer').style.display = 'block';
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error al refrescar imágenes:', error);
+                // Restaurar el botón en caso de error
+                if (showingAllImages) {
+                    const showAllBtn = document.getElementById('showAllImagesBtn');
+                    if (showAllBtn) {
+                        showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
+                        showAllBtn.disabled = false;
+                        document.getElementById('showMoreContainer').style.display = 'block';
+                    }
+                    // Volver a modo de vista limitada ya que la carga falló
+                    showingAllImages = false;
+                }
+            });
+    }
+    
+    // Esta función debe ser accesible globalmente para los botones generados dinámicamente
+    function rotateImage(filename, direction) {
+        fetch(`/rotate/${filename}/${direction}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Actualizar imágenes después de la rotación
+                    setTimeout(refreshImages, 500); // Esperar para que se procese la rotación
+                } else {
+                    console.error('Error al rotar imagen:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error en la solicitud de rotación:', error);
+            });
+    }
+    
+    // Esta función debe ser accesible globalmente para los botones generados dinámicamente
+    function deleteImage(filename) {
+        if (confirm(`¿Está seguro de eliminar la imagen ${filename}?`)) {
+            fetch(`/delete/${filename}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Actualizar imágenes después de la eliminación
+                        refreshImages();
+                    } else {
+                        console.error('Error al eliminar imagen:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error en la solicitud de eliminación:', error);
+                });
+        }
+    }
 </script>
 {% endblock %} 
