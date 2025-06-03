@@ -14,39 +14,53 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 def generate_folder_name():
-    """
-    Genera un nombre único para una carpeta usando hash MD5 y contador.
-    """
-    # Generar prefijo único con hash MD5 de timestamp + random
-    timestamp = str(time.time())
-    random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-    hash_input = timestamp + random_str
-    hash_prefix = hashlib.md5(hash_input.encode()).hexdigest()[:8]
-    
-    # Encontrar el número más alto actual
+    """Genera un nombre único para una carpeta con prefijo y número correlativo."""
     base_dir = 'proceso/carpetas'
     os.makedirs(base_dir, exist_ok=True)
     
-    # Buscar carpetas con patrón similar
-    existing_folders = glob.glob(os.path.join(base_dir, hash_prefix + "_*"))
+    # Obtener todas las carpetas existentes
+    existing_folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+    print(f"Carpetas existentes: {existing_folders}")
     
-    # Determinar el siguiente número
-    if existing_folders:
-        # Extraer números de las carpetas existentes
-        numbers = []
-        for folder in existing_folders:
-            folder_name = os.path.basename(folder)
-            parts = folder_name.split('_')
-            if len(parts) > 1 and parts[1].isdigit():
-                numbers.append(int(parts[1]))
-        
-        # Usar el siguiente número después del máximo
-        next_num = max(numbers) + 1 if numbers else 1
+    # Extraer números correlativos usando expresión regular
+    import re
+    pattern = r'_(\d+)$'  # Busca _XXX al final del nombre
+    correlative_numbers = []
+    
+    for folder in existing_folders:
+        match = re.search(pattern, folder)
+        if match:
+            try:
+                number = int(match.group(1))
+                correlative_numbers.append(number)
+                print(f"Carpeta {folder} tiene número correlativo: {number}")
+            except ValueError:
+                pass
+    
+    # Determinar el siguiente número correlativo
+    next_number = 1  # Valor predeterminado si no hay carpetas
+    if correlative_numbers:
+        next_number = max(correlative_numbers) + 1
+        print(f"Números correlativos encontrados: {correlative_numbers}")
+        print(f"Máximo número correlativo: {max(correlative_numbers)}")
+        print(f"Siguiente número a usar: {next_number}")
     else:
-        next_num = 1
+        print("No se encontraron números correlativos. Usando número inicial: 1")
     
-    # Formatear el número con ceros a la izquierda
-    folder_name = f"{hash_prefix}_{next_num:04d}"
+    # Generar un prefijo único (ejemplo: usando hash MD5 de timestamp)
+    import hashlib
+    import time
+    timestamp = str(time.time())
+    prefix = hashlib.md5(timestamp.encode()).hexdigest()[:6].upper()
+    print(f"Prefijo generado: {prefix}")
+    
+    # Formatear el número correlativo con ceros a la izquierda (3 dígitos)
+    formatted_number = f"{next_number:03d}"  # 3 dígitos, no 4
+    
+    # Combinar para crear el nombre de carpeta
+    folder_name = f"{prefix}_{formatted_number}"
+    print(f"Nombre de carpeta generado: {folder_name}")
+    
     return folder_name
 
 def create_new_folder():

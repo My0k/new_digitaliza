@@ -24,6 +24,7 @@ from io import BytesIO
 import hashlib
 from functions.boton_indexacion import generate_folder_name, create_new_folder
 import re
+from functions.boton_digitalizacion import create_new_folder, move_images_to_folder
 
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
@@ -2040,6 +2041,7 @@ def generate_folder_name():
     
     # Obtener todas las carpetas existentes
     existing_folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
+    print(f"Carpetas existentes: {existing_folders}")
     
     # Extraer números correlativos usando expresión regular
     import re
@@ -2050,7 +2052,9 @@ def generate_folder_name():
         match = re.search(pattern, folder)
         if match:
             try:
-                correlative_numbers.append(int(match.group(1)))
+                number = int(match.group(1))
+                correlative_numbers.append(number)
+                print(f"Carpeta {folder} tiene número correlativo: {number}")
             except ValueError:
                 pass
     
@@ -2058,18 +2062,25 @@ def generate_folder_name():
     next_number = 1  # Valor predeterminado si no hay carpetas
     if correlative_numbers:
         next_number = max(correlative_numbers) + 1
+        print(f"Números correlativos encontrados: {correlative_numbers}")
+        print(f"Máximo número correlativo: {max(correlative_numbers)}")
+        print(f"Siguiente número a usar: {next_number}")
+    else:
+        print("No se encontraron números correlativos. Usando número inicial: 1")
     
     # Generar un prefijo único (ejemplo: usando hash MD5 de timestamp)
     import hashlib
     import time
     timestamp = str(time.time())
     prefix = hashlib.md5(timestamp.encode()).hexdigest()[:6].upper()
+    print(f"Prefijo generado: {prefix}")
     
     # Formatear el número correlativo con ceros a la izquierda (3 dígitos)
     formatted_number = f"{next_number:03d}"
     
     # Combinar para crear el nombre de carpeta
     folder_name = f"{prefix}_{formatted_number}"
+    print(f"Nombre de carpeta generado: {folder_name}")
     
     return folder_name
 
