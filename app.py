@@ -1888,7 +1888,7 @@ def process_all_folders():
             }), 200
         
         # Importar la función desde el módulo
-        from functions.generar_ocr import generar_pdf_simple
+        from functions.generar_ocr import generar_pdf_con_ocr
         
         # Procesar cada carpeta, verificando que tengan imágenes
         results = []
@@ -1905,8 +1905,8 @@ def process_all_folders():
                 skipped_no_images += 1
                 continue
             
-            # Procesar carpeta
-            result = generar_pdf_simple(folder)
+            # Procesar carpeta usando la misma función OCR que el botón individual
+            result = generar_pdf_con_ocr(folder)
             results.append(result)
             
             if result['success']:
