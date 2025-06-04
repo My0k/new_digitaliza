@@ -462,6 +462,18 @@ def start_folder_monitor():
 def buscar_folio(folio):
     """Busca un folio en el CSV y devuelve los datos asociados."""
     try:
+        # Importar la función de verificación desde new_folio.py
+        from functions.new_folio import verificar_folio_existe
+        
+        # Verificar si el folio existe
+        if not verificar_folio_existe(folio):
+            logger.warning(f"Folio '{folio}' no encontrado en la verificación previa")
+            return jsonify({
+                'success': False, 
+                'error': 'Folio no encontrado',
+                'message': f"Folio '{folio}' no existe en el sistema"
+            }), 404
+        
         # Importar la función desde el módulo
         from functions.procesar_documento import buscar_por_folio
         
@@ -476,6 +488,16 @@ def buscar_folio(folio):
         datos = buscar_por_folio(folio)
         
         if datos:
+            # Si hay datos, obtener el RUT completo
+            rut_completo = f"{datos.get('rut', '')}{datos.get('dig_ver', '')}"
+            
+            # Importar y llamar a buscar_actualizar_folio para mostrar la alerta
+            from functions.new_folio import buscar_actualizar_folio
+            resultado_busqueda = buscar_actualizar_folio(rut_completo, folio)
+            
+            # Añadir el mensaje a los datos de respuesta
+            datos['mensaje_alerta'] = resultado_busqueda.get('message', '')
+            
             return jsonify({'success': True, 'datos': datos}), 200
         else:
             # Obtener algunos folios disponibles para ayudar en la depuración
@@ -517,6 +539,17 @@ def generar_pdf():
         if not rut_number or not rut_dv or not folio:
             return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
         
+        # Importar y llamar a la función de búsqueda/actualización de folio
+        from functions.new_folio import buscar_actualizar_folio
+        resultado_busqueda = buscar_actualizar_folio(f"{rut_number}{rut_dv}", folio)
+        
+        # Si la búsqueda falla, informar al usuario
+        if not resultado_busqueda.get('success', False):
+            return jsonify({
+                'success': False, 
+                'error': resultado_busqueda.get('message', 'Error al buscar el folio')
+            }), 400
+            
         # Crear carpeta para PDFs si no existe
         pdf_folder = 'pdf_procesado'
         os.makedirs(pdf_folder, exist_ok=True)
@@ -564,10 +597,18 @@ def generar_pdf():
         c.save()
         
         # Actualizar el CSV con el nombre del documento
-        actualizar_csv(folio, filename)
+        actualizado = actualizar_csv(folio, filename)
+        
+        if not actualizado:
+            logger.warning(f"El PDF se generó correctamente en {pdf_path}, pero no se pudo actualizar el CSV para el folio {folio}")
+            # A pesar de no actualizar el CSV, consideramos el proceso como exitoso para el usuario
         
         logger.info(f"PDF generado correctamente: {pdf_path}")
-        return jsonify({'success': True, 'filename': filename}), 200
+        return jsonify({
+            'success': True, 
+            'filename': filename,
+            'message': resultado_busqueda.get('message', 'Proceso completado exitosamente')
+        }), 200
     
     except Exception as e:
         error_msg = f"Error al generar PDF: {str(e)}"
@@ -617,6 +658,30 @@ def actualizar_csv(folio, nombre_documento):
         import traceback
         logger.error(traceback.format_exc())
         return False
+
+@app.route('/exportar_gesdoc')
+@login_required
+def exportar_documentos_gesdoc():
+    """Ejecuta la función de exportación a Gesdoc y devuelve los resultados."""
+    try:
+        # Importar la función desde el módulo
+        from functions.exportar_gesdoc import exportar_a_gesdoc
+        
+        # Ejecutar la función de exportación
+        resultado = exportar_a_gesdoc()
+        
+        # Retornar el resultado como JSON
+        return jsonify(resultado), 200 if resultado['success'] else 400
+    
+    except Exception as e:
+        error_msg = f"Error al exportar a Gesdoc: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'mensaje': error_msg
+        }), 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias

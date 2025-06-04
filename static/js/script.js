@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', function() {
         scanDocuments();
     });
     
+    // Botón de exportar a Gesdoc
+    document.getElementById('exportToGesdocBtn').addEventListener('click', function() {
+        exportarAGesdoc();
+    });
+    
     // Botones de rotación
     document.querySelectorAll('.rotate-btn').forEach(button => {
         button.addEventListener('click', function() {
@@ -459,9 +464,8 @@ function scanDocuments() {
         });
 }
 
-// Función para procesar el documento con los datos ingresados
+// Función para procesar el documento
 function processDocument() {
-    // Obtener el folio ingresado
     const folio = document.getElementById('studentFolio').value.trim();
     
     if (!folio) {
@@ -487,10 +491,37 @@ function processDocument() {
                 document.getElementById('amount').value = data.datos.monto;
                 document.getElementById('avalEmail').value = data.datos.email_aval;
                 
+                // Mostrar la alerta si existe
+                if (data.datos.mensaje_alerta) {
+                    alert(data.datos.mensaje_alerta);
+                }
+                
                 // Mostrar botón de finalizar procesado
                 mostrarBotonFinalizar();
             } else {
-                alert('Error: ' + (data.error || 'No se encontró el folio especificado'));
+                // Si el folio no se encuentra, importar la función desde new_folio.py
+                // y mostrar el mensaje correspondiente en lugar del error genérico
+                if (data.message && data.message.includes('no encontrado')) {
+                    // Extraer el RUT del formulario (si está disponible)
+                    const rutNumber = document.getElementById('studentRutNumber').value.trim();
+                    const rutDV = document.getElementById('studentRutDV').value.trim();
+                    let rutCompleto = '';
+                    
+                    if (rutNumber && rutDV) {
+                        rutCompleto = `${rutNumber}${rutDV}`;
+                    }
+                    
+                    // Si no hay RUT en el formulario, usar un placeholder
+                    if (!rutCompleto) {
+                        rutCompleto = "No especificado";
+                    }
+                    
+                    // Mostrar el mensaje de alerta para folio no encontrado
+                    alert(`Buscando y actualizando folio para rut: ${rutCompleto} folio: ${folio}`);
+                } else {
+                    // Para otros errores, mostrar el mensaje normal
+                    alert('Error: ' + (data.error || 'No se encontró el folio especificado'));
+                }
             }
         })
         .catch(error => {
@@ -811,6 +842,45 @@ function newDigitalization() {
             // Restaurar el botón
             newDigBtn.innerHTML = originalText;
             newDigBtn.disabled = false;
+        });
+}
+
+// Función para exportar documentos a Gesdoc
+function exportarAGesdoc() {
+    // Mostrar indicador de carga
+    const exportBtn = document.getElementById('exportToGesdocBtn');
+    const originalText = exportBtn.innerHTML;
+    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exportando...';
+    exportBtn.disabled = true;
+    
+    // Llamar al endpoint para exportar a Gesdoc
+    fetch('/exportar_gesdoc')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Construir mensaje para mostrar en la alerta
+                let mensaje = data.mensaje + ":\n\n";
+                
+                // Añadir detalles de los documentos
+                if (data.detalles && data.detalles.length > 0) {
+                    mensaje += data.detalles.join('\n');
+                }
+                
+                // Mostrar alerta con la información
+                alert(mensaje);
+            } else {
+                // Mostrar mensaje de error
+                alert('Error: ' + data.mensaje);
+            }
+        })
+        .catch(error => {
+            console.error('Error al exportar a Gesdoc:', error);
+            alert('Error al exportar a Gesdoc');
+        })
+        .finally(() => {
+            // Restaurar el botón
+            exportBtn.innerHTML = originalText;
+            exportBtn.disabled = false;
         });
 }
 
