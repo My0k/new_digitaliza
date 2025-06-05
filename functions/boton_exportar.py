@@ -40,7 +40,7 @@ def get_exportable_documents():
         
         # Paso 1: Obtener carpetas que están tanto en ocr_generado como en carpeta_indexada
         carpetas_indexadas = []
-        with open(carpetas_path, 'r', newline='') as file:
+        with open(carpetas_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             header = next(reader)
             
@@ -65,7 +65,7 @@ def get_exportable_documents():
         
         # Paso 2: Verificar cuáles de estas carpetas tienen CODIGO en db_input.csv
         documentos_exportables = []
-        with open(db_input_path, 'r', newline='') as file:
+        with open(db_input_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             header = next(reader)
             

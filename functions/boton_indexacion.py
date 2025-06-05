@@ -8,6 +8,7 @@ import logging
 import subprocess
 import PyPDF2
 import glob
+import csv
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -76,6 +77,55 @@ def create_new_folder():
         
         # Crear la carpeta
         os.makedirs(folder_path, exist_ok=True)
+        
+        # Registrar la nueva carpeta en carpetas.csv
+        try:
+            carpetas_path = 'carpetas.csv'
+            
+            # Verificar si el archivo existe
+            if not os.path.exists(carpetas_path):
+                # Crear el archivo con encabezados si no existe
+                with open(carpetas_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['carpeta_indexada', 'ocr_generado'])
+            
+            # Leer el archivo existente
+            rows = []
+            folder_exists = False
+            
+            with open(carpetas_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
+                reader = csv.reader(file)
+                header = next(reader)  # Leer encabezados
+                
+                # Verificar columnas necesarias
+                if 'ocr_generado' not in header:
+                    # Añadir la columna si no existe
+                    header.append('ocr_generado')
+                
+                rows.append(header)
+                
+                # Leer filas existentes y verificar si la carpeta ya está registrada
+                for row in reader:
+                    if len(row) > 1 and row[1] == folder_name:
+                        folder_exists = True
+                    rows.append(row)
+            
+            # Añadir la nueva carpeta si no existe
+            if not folder_exists:
+                # Añadir fila con la nueva carpeta (columna carpeta_indexada vacía)
+                new_row = ['', folder_name]
+                rows.append(new_row)
+                
+                # Escribir cambios
+                with open(carpetas_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerows(rows)
+            
+            logger.info(f"Carpeta {folder_name} registrada en carpetas.csv")
+            
+        except Exception as csv_err:
+            logger.error(f"Error al actualizar carpetas.csv: {str(csv_err)}")
+            # Continuar a pesar del error con el CSV
         
         return {
             'success': True,
@@ -164,8 +214,18 @@ def extract_project_code_from_ocr(folder_name):
                 for page_num in range(len(reader.pages)):
                     page = reader.pages[page_num]
                     page_text = page.extract_text()
-                    text += page_text
-                    logger.info(f"Texto extraído de página {page_num+1}: {page_text[:100]}...")
+                    # Tratar problemas de codificación explícitamente
+                    if page_text:
+                        try:
+                            # Si hay caracteres que no son UTF-8, intenta decodificar correctamente
+                            if not isinstance(page_text, str):
+                                page_text = page_text.decode('utf-8', errors='ignore')
+                        except (UnicodeDecodeError, AttributeError):
+                            # Si hay un error, usa una versión con caracteres problemáticos ignorados
+                            page_text = str(page_text).encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
+                    
+                    text += page_text if page_text else ""
+                    logger.info(f"Texto extraído de página {page_num+1}: {page_text[:100] if page_text else 'No se pudo extraer texto'}...")
         except Exception as pdf_error:
             logger.error(f"Error al leer PDF {pdf_path}: {str(pdf_error)}")
             return {

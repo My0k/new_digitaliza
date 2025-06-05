@@ -53,7 +53,7 @@ def auto_indexar():
         
         # Obtener todas las carpetas a indexar (en ocr_generado pero no en carpeta_indexada)
         carpetas_a_indexar = []
-        with open(carpetas_path, 'r', newline='') as file:
+        with open(carpetas_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             header = next(reader)
             
@@ -78,7 +78,7 @@ def auto_indexar():
         
         # Obtener todos los códigos ya existentes en db_input.csv
         codigos_existentes = set()
-        with open(db_input_path, 'r', newline='') as file:
+        with open(db_input_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             header = next(reader)
             
@@ -229,7 +229,7 @@ def indexar_carpeta(folder_id, project_code):
         
         # Leer el archivo
         rows = []
-        with open(db_input_path, 'r', newline='') as file:
+        with open(db_input_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             header = next(reader)  # Guardar el encabezado
             
@@ -274,7 +274,7 @@ def indexar_carpeta(folder_id, project_code):
             rows.append(new_row)
         
         # Escribir los cambios
-        with open(db_input_path, 'w', newline='') as file:
+        with open(db_input_path, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             writer.writerow(header)
             writer.writerows(rows)
@@ -292,7 +292,7 @@ def indexar_carpeta(folder_id, project_code):
         # Leer el archivo
         carpetas_rows = []
         folder_in_list = False
-        with open(carpetas_path, 'r', newline='') as file:
+        with open(carpetas_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
             reader = csv.reader(file)
             carpetas_header = next(reader)  # Guardar el encabezado
             
@@ -324,7 +324,7 @@ def indexar_carpeta(folder_id, project_code):
             carpetas_updated = True
         
         # Escribir los cambios
-        with open(carpetas_path, 'w', newline='') as file:
+        with open(carpetas_path, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             writer.writerow(carpetas_header)
             writer.writerows(carpetas_rows)

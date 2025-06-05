@@ -5,6 +5,7 @@ import logging
 import hashlib
 import time
 import re
+import csv
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -69,6 +70,55 @@ def create_new_folder():
         
         # Crear la carpeta
         os.makedirs(folder_path, exist_ok=True)
+        
+        # Registrar la nueva carpeta en carpetas.csv
+        try:
+            carpetas_path = 'carpetas.csv'
+            
+            # Verificar si el archivo existe
+            if not os.path.exists(carpetas_path):
+                # Crear el archivo con encabezados si no existe
+                with open(carpetas_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['carpeta_indexada', 'ocr_generado'])
+            
+            # Leer el archivo existente
+            rows = []
+            folder_exists = False
+            
+            with open(carpetas_path, 'r', newline='', encoding='utf-8', errors='ignore') as file:
+                reader = csv.reader(file)
+                header = next(reader)  # Leer encabezados
+                
+                # Verificar columnas necesarias
+                if 'ocr_generado' not in header:
+                    # Añadir la columna si no existe
+                    header.append('ocr_generado')
+                
+                rows.append(header)
+                
+                # Leer filas existentes y verificar si la carpeta ya está registrada
+                for row in reader:
+                    if len(row) > 1 and row[1] == folder_name:
+                        folder_exists = True
+                    rows.append(row)
+            
+            # Añadir la nueva carpeta si no existe
+            if not folder_exists:
+                # Añadir fila con la nueva carpeta (columna carpeta_indexada vacía)
+                new_row = ['', folder_name]
+                rows.append(new_row)
+                
+                # Escribir cambios
+                with open(carpetas_path, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerows(rows)
+            
+            logger.info(f"Carpeta {folder_name} registrada en carpetas.csv")
+            
+        except Exception as csv_err:
+            logger.error(f"Error al actualizar carpetas.csv: {str(csv_err)}")
+            # Continuar a pesar del error con el CSV
         
         return {
             'success': True,
