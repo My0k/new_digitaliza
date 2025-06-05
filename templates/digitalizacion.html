@@ -63,6 +63,13 @@
                 </p>
             </div>
             
+            <!-- Botón grande para actualizar la página manualmente -->
+            <div class="d-grid gap-2 mb-3">
+                <button id="refreshPageBtn" class="btn btn-primary btn-lg">
+                    <i class="fas fa-sync-alt me-2"></i> Actualizar Página
+                </button>
+            </div>
+            
             <div class="text-center" id="lastUpdateInfo">
                 <small class="text-muted">Última actualización: <span id="lastUpdateTime">-</span></small>
             </div>
@@ -86,6 +93,11 @@
         
         // Configurar botón para generar carpeta
         document.getElementById('generateFolderBtn').addEventListener('click', generateFolder);
+        
+        // Configurar botón para actualizar la página (F5)
+        document.getElementById('refreshPageBtn').addEventListener('click', function() {
+            window.location.reload();
+        });
         
         // Configurar botón para mostrar todas las imágenes
         document.getElementById('showAllImagesBtn').addEventListener('click', function() {

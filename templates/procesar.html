@@ -87,12 +87,6 @@
                     <span class="visually-hidden">Procesando...</span>
                 </div>
                 <p id="processingMessage">Aplicando OCR a las imágenes, esto puede tardar unos minutos...</p>
-                <div class="alert alert-warning mt-3">
-                    <button id="stopProcessingBtn" class="btn btn-danger w-100">
-                        <i class="fas fa-stop me-2"></i> Detener Procesado
-                    </button>
-                    <p class="small mt-2 mb-0"><strong>¡Atención!</strong> Al detener el proceso, se perderá el progreso de la carpeta actual y solo se mantendrán las carpetas ya procesadas completamente.</p>
-                </div>
             </div>
         </div>
     </div>
@@ -127,31 +121,6 @@
         const processingModal = new bootstrap.Modal(document.getElementById('processingModal'));
         const resultsModal = new bootstrap.Modal(document.getElementById('resultsModal'));
         
-        // Variable para controlar la interrupción del proceso
-        let processingCancelled = false;
-        
-        // Configurar botón de detener procesamiento
-        document.getElementById('stopProcessingBtn').addEventListener('click', function() {
-            processingCancelled = true;
-            this.disabled = true;
-            this.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Deteniendo...';
-            
-            // Llamar al endpoint para detener el procesamiento
-            fetch('/stop_processing', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('processingMessage').textContent = 'Deteniendo el procesamiento, espere por favor...';
-            })
-            .catch(error => {
-                console.error('Error al detener el procesamiento:', error);
-            });
-        });
-        
         // Configurar botón de actualizar carpetas
         document.getElementById('refreshFoldersBtn').addEventListener('click', function() {
             window.location.reload();
@@ -159,14 +128,6 @@
         
         // Configurar botón de Procesar todos
         document.getElementById('processAllBtn').addEventListener('click', function() {
-            // Reiniciar la variable de cancelación
-            processingCancelled = false;
-            
-            // Habilitar el botón de detener
-            const stopBtn = document.getElementById('stopProcessingBtn');
-            stopBtn.disabled = false;
-            stopBtn.innerHTML = '<i class="fas fa-stop me-2"></i> Detener Procesado';
-            
             // Mostrar modal de procesamiento
             document.getElementById('processingMessage').textContent = 'Procesando todas las carpetas pendientes, esto puede tardar varios minutos...';
             processingModal.show();
@@ -187,13 +148,10 @@
                 let resultsHtml = '';
                 
                 if (data.success) {
-                    // Verificar si el proceso fue interrumpido
-                    const wasCancelled = data.cancelled || processingCancelled;
-                    
                     resultsHtml = `
-                        <div class="alert ${wasCancelled ? 'alert-warning' : 'alert-success'}">
-                            <h6>${wasCancelled ? 'Procesamiento Interrumpido' : 'Procesamiento Completado'}</h6>
-                            <p>${wasCancelled ? 'El proceso fue detenido manualmente.' : 'Se han procesado las carpetas pendientes.'}</p>
+                        <div class="alert alert-success">
+                            <h6>Procesamiento Completado</h6>
+                            <p>Se han procesado las carpetas pendientes.</p>
                         </div>
                         
                         <div class="card mb-3">
@@ -219,17 +177,6 @@
                                     <span>Carpetas con errores:</span>
                                     <strong>${data.error_count}</strong>
                                 </li>
-                                ${wasCancelled ? `
-                                <li class="list-group-item d-flex justify-content-between text-danger">
-                                    <span>Carpetas no procesadas (por interrupción):</span>
-                                    <strong>${data.cancelled_count || 'N/A'}</strong>
-                                </li>
-                                ${data.interrupted_folder ? `
-                                <li class="list-group-item d-flex justify-content-between text-danger">
-                                    <span>Carpeta interrumpida:</span>
-                                    <strong>${data.interrupted_folder}</strong>
-                                </li>` : ''}
-                                ` : ''}
                             </ul>
                         </div>
                     `;
