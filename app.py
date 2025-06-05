@@ -1939,11 +1939,53 @@ def process_all_folders():
         processed_count = 0
         skipped_no_images = 0
         cancelled_count = 0
+        current_folder = None
+        
+        # Definir una versión modificada de generar_pdf_con_ocr que verifica si debe interrumpirse
+        def generar_pdf_con_ocr_interrumpible(folder_id):
+            """Versión modificada de generar_pdf_con_ocr que puede interrumpirse"""
+            # Si el procesamiento ya no está activo, cancelar inmediatamente
+            if not processing_active:
+                return {'success': False, 'error': 'Procesamiento interrumpido por el usuario'}
+            
+            try:
+                # Importar la función original
+                from functions.generar_ocr import generar_pdf_con_ocr as original_generar_pdf_con_ocr
+                
+                # Aquí podríamos modificar la función original para que verifique periódicamente
+                # si debe interrumpirse, pero por ahora simplemente la llamamos y verificamos
+                # al final si el procesamiento sigue activo
+                result = original_generar_pdf_con_ocr(folder_id)
+                
+                # Si el procesamiento se desactivó durante la ejecución, anulamos el resultado
+                if not processing_active:
+                    # Intentar eliminar el PDF si se creó
+                    try:
+                        pdf_path = result.get('pdf_path', '')
+                        if pdf_path and os.path.exists(pdf_path):
+                            os.remove(pdf_path)
+                            logger.info(f"PDF eliminado debido a interrupción: {pdf_path}")
+                    except Exception as e:
+                        logger.error(f"Error al eliminar PDF interrumpido: {str(e)}")
+                    
+                    # Deshacer actualización de carpetas.csv si es necesario
+                    # Este paso depende de cómo está implementada la función original
+                    # y podría requerir un código más específico
+                    
+                    return {'success': False, 'error': 'Procesamiento interrumpido por el usuario'}
+                
+                return result
+            except Exception as e:
+                logger.error(f"Error en generar_pdf_con_ocr_interrumpible: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return {'success': False, 'error': str(e)}
         
         for folder in folders_to_process:
             # Verificar si se ha solicitado detener el procesamiento
             if not processing_active:
                 logger.info("Procesamiento interrumpido por el usuario")
+                # Calcular cuántas carpetas quedan sin procesar
                 cancelled_count = len(folders_to_process) - processed_count - skipped_no_images
                 break
                 
@@ -1956,13 +1998,24 @@ def process_all_folders():
                 skipped_no_images += 1
                 continue
             
-            # Procesar carpeta usando la misma función OCR que el botón individual
-            result = generar_pdf_con_ocr(folder)
+            # Guardar la carpeta actual que está siendo procesada
+            current_folder = folder
+            
+            # Procesar carpeta usando la versión interrumpible
+            result = generar_pdf_con_ocr_interrumpible(folder)
+            
+            # Si el procesamiento fue interrumpido, no agregar el resultado
+            if not processing_active:
+                logger.info(f"Procesamiento interrumpido durante la carpeta {folder}")
+                # Calcular cuántas carpetas quedan sin procesar
+                cancelled_count = len(folders_to_process) - processed_count - skipped_no_images
+                break
+            
             results.append(result)
             
             if result['success']:
                 processed_count += 1
-        
+            
         # Preparar respuesta
         return jsonify({
             'success': True,
@@ -1974,7 +2027,8 @@ def process_all_folders():
             'error_count': len(results) - processed_count,
             'details': results,
             'cancelled': not processing_active,
-            'cancelled_count': cancelled_count
+            'cancelled_count': cancelled_count,
+            'interrupted_folder': current_folder if not processing_active else None
         })
         
     except Exception as e:

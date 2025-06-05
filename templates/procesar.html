@@ -91,7 +91,7 @@
                     <button id="stopProcessingBtn" class="btn btn-danger w-100">
                         <i class="fas fa-stop me-2"></i> Detener Procesado
                     </button>
-                    <p class="small mt-2 mb-0">Al detener el proceso, se mantendrán los archivos ya procesados correctamente.</p>
+                    <p class="small mt-2 mb-0"><strong>¡Atención!</strong> Al detener el proceso, se perderá el progreso de la carpeta actual y solo se mantendrán las carpetas ya procesadas completamente.</p>
                 </div>
             </div>
         </div>
@@ -223,7 +223,13 @@
                                 <li class="list-group-item d-flex justify-content-between text-danger">
                                     <span>Carpetas no procesadas (por interrupción):</span>
                                     <strong>${data.cancelled_count || 'N/A'}</strong>
+                                </li>
+                                ${data.interrupted_folder ? `
+                                <li class="list-group-item d-flex justify-content-between text-danger">
+                                    <span>Carpeta interrumpida:</span>
+                                    <strong>${data.interrupted_folder}</strong>
                                 </li>` : ''}
+                                ` : ''}
                             </ul>
                         </div>
                     `;
