@@ -13,12 +13,46 @@ if %OS%==32BIT (
     exit /b 1
 )
 
+:: Verifica si se está ejecutando como administrador
+net session >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Este script requiere privilegios de administrador.
+    echo Por favor, ejecuta el script como administrador.
+    pause
+    exit /b 1
+)
+
+:: Instala Chocolatey si no está instalado
+where choco >nul 2>&1
+if errorlevel 1 (
+    echo Instalando Chocolatey...
+    @"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command "[System.Net.ServicePointManager]::SecurityProtocol = 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))" && SET "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
+    
+    if errorlevel 1 (
+        echo ❌ Error al instalar Chocolatey.
+        pause
+        exit /b 1
+    ) else (
+        echo ✅ Chocolatey instalado correctamente.
+    )
+) else (
+    echo ✅ Chocolatey ya está instalado.
+)
+
 :: Verifica Python (asegurando versión 64 bits)
 where python >nul 2>&1
 if errorlevel 1 (
-    echo ❌ Python no esta instalado o no esta en PATH. Instala Python 64-bit desde https://www.python.org
-    pause
-    exit /b 1
+    echo Python no está instalado. Instalando Python 64-bit con Chocolatey...
+    choco install python -y --version=3.10.0
+    
+    if errorlevel 1 (
+        echo ❌ Error al instalar Python.
+        pause
+        exit /b 1
+    )
+    refreshenv
+) else (
+    echo ✅ Python ya está instalado.
 )
 
 :: Verifica si Python es de 64 bits
@@ -38,12 +72,26 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Instala Tesseract con Chocolatey
+echo Instalando Tesseract OCR 64-bit con Chocolatey...
+choco install tesseract -y
+
+:: Verifica Tesseract
+where tesseract >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Tesseract no se instaló correctamente.
+    pause
+    exit /b 1
+) else (
+    echo ✅ Tesseract instalado correctamente.
+)
+
 :: Instala requirements.txt si existe
 if exist requirements.txt (
     echo Instalando dependencias desde requirements.txt...
     pip install -r requirements.txt
 ) else (
-    echo El archivo requirements.txt no se encuentra, continuando con la instalacion...
+    echo El archivo requirements.txt no se encuentra, continuando con la instalación...
 )
 
 :: Instala pytesseract
@@ -54,55 +102,30 @@ pip install pytesseract
 echo Instalando ocrmypdf con pip...
 pip install ocrmypdf
 
-:: Instala Tesseract 64-bit desde el instalador de UB Mannheim
-echo Descargando instalador de Tesseract 64-bit (UB Mannheim)...
-curl -L -o tesseract-installer.exe https://github.com/UB-Mannheim/tesseract/releases/download/v5.3.1.20230401/tesseract-ocr-w64-setup-5.3.1.20230401.exe
-
-echo Ejecutando instalador de Tesseract 64-bit...
-start /wait tesseract-installer.exe
-
-:: Verifica Tesseract
-where tesseract >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Tesseract no se instalo correctamente. Asegurate de marcar "Add to PATH" durante la instalacion.
-    pause
-    exit /b 1
-)
-
-:: Instala Ghostscript 64-bit
-echo Descargando Ghostscript 64-bit...
-curl -L -o gssetup.exe https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10010/gs10010w64.exe
-
-echo Ejecutando instalador de Ghostscript 64-bit...
-start /wait gssetup.exe
-
-:: Verifica Ghostscript 64-bit
-where gswin64c >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Ghostscript 64-bit no se instalo correctamente.
-    pause
-    exit /b 1
-)
-
 :: Verifica ocrmypdf
 where ocrmypdf >nul 2>&1
 if errorlevel 1 (
-    echo ❌ ocrmypdf no esta disponible en el PATH. Intenta reiniciar la terminal o usar python -m ocrmypdf
+    echo ❌ ocrmypdf no está disponible en el PATH. Intenta reiniciar la terminal o usar python -m ocrmypdf
     pause
     exit /b 1
+) else (
+    echo ✅ ocrmypdf instalado correctamente.
 )
 
 :: Verifica pytesseract
 python -c "import pytesseract" >nul 2>&1
 if errorlevel 1 (
-    echo ❌ pytesseract no se instalo correctamente.
+    echo ❌ pytesseract no se instaló correctamente.
     pause
     exit /b 1
 ) else (
     echo ✅ pytesseract instalado correctamente.
 )
 
-echo ✅ Instalacion completada exitosamente.
+echo ============================================
+echo ✅ Instalación completada exitosamente.
+echo ============================================
+echo Versión de ocrmypdf:
 ocrmypdf --version
 
 pause
