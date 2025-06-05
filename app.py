@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 last_folder_modification = 0
 folder_monitor_active = True
 
+# Variable para controlar la interrupción de procesamiento
+processing_active = True
+
 # Asegurar que la carpeta de entrada existe
 def ensure_input_folder():
     """Asegura que la carpeta input existe y es accesible."""
@@ -1879,6 +1882,10 @@ def process_folder():
 def process_all_folders():
     """Procesa todas las carpetas pendientes generando PDFs."""
     try:
+        # Reiniciar la variable global de procesamiento
+        global processing_active
+        processing_active = True
+        
         # Obtener lista de carpetas
         base_dir = os.path.join('proceso', 'carpetas')
         os.makedirs(base_dir, exist_ok=True)
@@ -1931,8 +1938,15 @@ def process_all_folders():
         results = []
         processed_count = 0
         skipped_no_images = 0
+        cancelled_count = 0
         
         for folder in folders_to_process:
+            # Verificar si se ha solicitado detener el procesamiento
+            if not processing_active:
+                logger.info("Procesamiento interrumpido por el usuario")
+                cancelled_count = len(folders_to_process) - processed_count - skipped_no_images
+                break
+                
             # Verificar si la carpeta tiene imágenes JPG
             folder_path = os.path.join(base_dir, folder)
             image_files = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
@@ -1958,7 +1972,9 @@ def process_all_folders():
             'skipped_no_images': skipped_no_images,
             'processed_successfully': processed_count,
             'error_count': len(results) - processed_count,
-            'details': results
+            'details': results,
+            'cancelled': not processing_active,
+            'cancelled_count': cancelled_count
         })
         
     except Exception as e:
@@ -1966,6 +1982,27 @@ def process_all_folders():
         logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
+@app.route('/stop_processing', methods=['POST'])
+@login_required
+def stop_processing():
+    """Detiene el procesamiento masivo de carpetas."""
+    try:
+        global processing_active
+        processing_active = False
+        logger.info("Se ha solicitado detener el procesamiento")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Se ha solicitado detener el procesamiento'
+        })
+    except Exception as e:
+        error_msg = f"Error al detener el procesamiento: {str(e)}"
+        logger.error(error_msg)
         return jsonify({
             'success': False,
             'error': error_msg
