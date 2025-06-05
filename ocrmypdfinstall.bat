@@ -21,6 +21,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Instala requirements.txt si existe
+if exist requirements.txt (
+    echo Instalando dependencias desde requirements.txt...
+    pip install -r requirements.txt
+) else (
+    echo El archivo requirements.txt no se encuentra, continuando con la instalacion...
+)
+
+:: Instala pytesseract
+echo Instalando pytesseract...
+pip install pytesseract
+
 :: Instala ocrmypdf
 echo Instalando ocrmypdf con pip...
 pip install ocrmypdf
@@ -61,6 +73,16 @@ if errorlevel 1 (
     echo ❌ ocrmypdf no esta disponible en el PATH. Intenta reiniciar la terminal o usar python -m ocrmypdf
     pause
     exit /b 1
+)
+
+:: Verifica pytesseract
+python -c "import pytesseract" >nul 2>&1
+if errorlevel 1 (
+    echo ❌ pytesseract no se instalo correctamente.
+    pause
+    exit /b 1
+) else (
+    echo ✅ pytesseract instalado correctamente.
 )
 
 echo ✅ Instalacion completada exitosamente.
