@@ -16,13 +16,16 @@ from pathlib import Path
 
 def check_ocrmypdf_installed():
     """Verifica si ocrmypdf está instalado en el sistema."""
+    print("Verificando si ocrmypdf está instalado...")
     try:
         subprocess.run(["ocrmypdf", "--version"], 
                       stdout=subprocess.PIPE, 
                       stderr=subprocess.PIPE,
                       check=True)
+        print("✓ ocrmypdf está instalado correctamente.")
         return True
     except (subprocess.SubprocessError, FileNotFoundError):
+        print("✗ ocrmypdf no está instalado.")
         return False
 
 def install_ocrmypdf():
@@ -32,8 +35,9 @@ def install_ocrmypdf():
     
     try:
         if system == "Windows":
+            print("Instalando ocrmypdf en Windows mediante pip...")
             subprocess.run(["pip", "install", "ocrmypdf"], check=True)
-            print("Se ha instalado ocrmypdf correctamente.")
+            print("✓ Se ha instalado ocrmypdf correctamente.")
         elif system == "Linux":
             print("En Linux, es recomendable instalar ocrmypdf mediante el gestor de paquetes.")
             print("Por ejemplo, en Ubuntu/Debian: sudo apt-get install ocrmypdf")
@@ -63,6 +67,7 @@ def process_pdf(input_file, output_file, language="spa", deskew=True, clean=True
     input_path = Path(input_file)
     output_path = Path(output_file)
     
+    print(f"Verificando archivo de entrada: {input_file}")
     if not input_path.exists():
         print(f"Error: El archivo {input_file} no existe.")
         sys.exit(1)
@@ -71,28 +76,39 @@ def process_pdf(input_file, output_file, language="spa", deskew=True, clean=True
         print(f"Error: {input_file} no es un archivo PDF válido.")
         sys.exit(1)
     
+    print(f"✓ Archivo de entrada verificado: {input_file} ({input_path.stat().st_size} bytes)")
+    
     # Preparar comando con opciones
     cmd = ["ocrmypdf"]
     
     if deskew:
         cmd.append("--deskew")
+        print("- Habilitada la corrección de inclinación")
     
     if clean:
         cmd.append("--clean")
+        print("- Habilitada la limpieza de imágenes")
     
     if optimize:
         cmd.append("--optimize")
         cmd.append("3")
+        print("- Habilitada la optimización nivel 3")
     
     # Forzar OCR aunque el PDF ya tenga texto
     cmd.append("--force-ocr")
+    print("- Forzando OCR incluso si ya tiene texto")
     
     # Especificar idioma
     cmd.extend(["-l", language])
+    print(f"- Idioma seleccionado: {language}")
     
     # Agregar archivos de entrada y salida
     cmd.extend([str(input_path), str(output_path)])
     
+    print("\nComando completo:")
+    print(" ".join(cmd))
+    
+    print("\nIniciando proceso OCR...")
     try:
         print(f"Procesando {input_file}...")
         process = subprocess.run(
@@ -102,11 +118,22 @@ def process_pdf(input_file, output_file, language="spa", deskew=True, clean=True
             text=True,
             check=True
         )
-        print(f"Archivo procesado exitosamente. Guardado en {output_file}")
-        return True
+        
+        print("\n--- Salida del proceso ---")
+        print(process.stdout)
+        
+        if output_path.exists():
+            print(f"✓ Archivo procesado exitosamente.")
+            print(f"✓ Guardado en: {output_file} ({output_path.stat().st_size} bytes)")
+            return True
+        else:
+            print(f"✗ Error: El archivo de salida no se generó correctamente.")
+            return False
+            
     except subprocess.CalledProcessError as e:
-        print(f"Error al procesar el archivo: {e}")
-        print(f"Detalles: {e.stderr}")
+        print(f"✗ Error al procesar el archivo: {e}")
+        print(f"Detalles del error:")
+        print(e.stderr)
         return False
 
 def main():
@@ -126,6 +153,8 @@ def main():
     
     args = parser.parse_args()
     
+    print("=== OCR PDF Processor ===")
+    
     # Verificar si ocrmypdf está instalado
     if not check_ocrmypdf_installed():
         install_ocrmypdf()
@@ -142,6 +171,14 @@ def main():
         input_path = Path(input_file)
         output_file = str(input_path.with_name(f"{input_path.stem}_ocr{input_path.suffix}"))
     
+    print(f"\nConfiguración:")
+    print(f"- Archivo de entrada: {input_file}")
+    print(f"- Archivo de salida: {output_file}")
+    print(f"- Idioma: {args.language}")
+    print(f"- Corrección de inclinación: {'Sí' if args.deskew else 'No'}")
+    print(f"- Limpieza de imagen: {'Sí' if args.clean else 'No'}")
+    print(f"- Optimización: {'Sí' if args.optimize else 'No'}")
+    
     # Procesar el PDF
     success = process_pdf(
         input_file=input_file,
@@ -153,9 +190,9 @@ def main():
     )
     
     if success:
-        print("Proceso completado con éxito.")
+        print("\n✓ Proceso completado con éxito.")
     else:
-        print("El proceso falló.")
+        print("\n✗ El proceso falló.")
         sys.exit(1)
 
 if __name__ == "__main__":

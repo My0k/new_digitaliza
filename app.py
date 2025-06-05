@@ -22,7 +22,7 @@ import functools
 import pandas as pd
 from io import BytesIO
 import hashlib
-from functions.boton_indexacion import generate_folder_name, create_new_folder
+from functions.boton_indexacion import generate_folder_name, create_new_folder, extract_project_code_from_ocr
 import re
 from functions.boton_digitalizacion import create_new_folder, move_images_to_folder
 
@@ -1266,49 +1266,23 @@ def process_and_finalize():
 def generate_cuadratura():
     """Genera un archivo de cuadratura."""
     try:
-        # Determinar si estamos en modo Indexación o Digitalización
-        folder_id = request.args.get('folder', None)
+        # Usar la función de boton_exportar.py
+        from functions.boton_exportar import generar_cuadratura
         
-        # Determinar el directorio de las imágenes
-        if folder_id:
-            # Modo Indexación - usar carpeta numerada
-            base_dir = os.path.join('carpetas', folder_id)
-            logger.info(f"Generando cuadratura en modo Indexación, carpeta: {folder_id}")
-        else:
-            # Modo Digitalización - usar carpeta input
-            base_dir = app.config['UPLOAD_FOLDER']
-            logger.info("Generando cuadratura en modo Digitalización")
+        result = generar_cuadratura()
         
-        # Verificar que el directorio existe
-        if not os.path.exists(base_dir):
+        if not result['success']:
             return jsonify({
                 'success': False,
-                'error': f"El directorio {base_dir} no existe"
+                'error': result['error']
             }), 400
-            
-        # Aquí iría el código para generar la cuadratura
-        # Por ahora simplemente simularemos un resultado exitoso
         
-        # Crear un archivo Excel de muestra
-        output = BytesIO()
-        
-        # Crear un DataFrame de pandas con datos de muestra
-        data = {
-            'Documento': ['Doc1', 'Doc2', 'Doc3'],
-            'Estado': ['Procesado', 'Procesado', 'Procesado'],
-            'Fecha': ['2023-01-01', '2023-01-02', '2023-01-03']
-        }
-        df = pd.DataFrame(data)
-        
-        # Guardar DataFrame en Excel
-        df.to_excel(output, index=False)
-        output.seek(0)
-        
+        # Enviar el archivo
         return send_file(
-            output, 
+            result['path'], 
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=f"cuadratura_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            download_name=result['filename']
         )
     except Exception as e:
         error_msg = f"Error al generar cuadratura: {str(e)}"
@@ -1316,6 +1290,69 @@ def generate_cuadratura():
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/get_exportable_documents')
+@login_required
+def get_exportable_documents_route():
+    """Obtiene la lista de documentos disponibles para exportar."""
+    try:
+        from functions.boton_exportar import get_exportable_documents
+        
+        result = get_exportable_documents()
+        return jsonify(result)
+    except Exception as e:
+        error_msg = f"Error al obtener documentos exportables: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/export_documents', methods=['POST'])
+@login_required
+def export_documents():
+    """Exporta documentos en un archivo ZIP."""
+    try:
+        from functions.boton_exportar import exportar_documentos
+        
+        result = exportar_documentos()
+        
+        if not result['success']:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 400
+        
+        # Devolver la información del archivo generado
+        return jsonify({
+            'success': True,
+            'filename': result['filename'],
+            'path': result['path'],
+            'document_count': result['document_count'],
+            'error_count': result.get('error_count', 0),
+            'download_url': f"/download_export/{result['filename']}"
+        })
+    except Exception as e:
+        error_msg = f"Error al exportar documentos: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': error_msg}), 500
+
+@app.route('/download_export/<filename>')
+@login_required
+def download_export(filename):
+    """Descarga un archivo de exportación."""
+    try:
+        exports_dir = 'exports'
+        return send_file(
+            os.path.join(exports_dir, secure_filename(filename)),
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f"Error al descargar archivo de exportación: {str(e)}")
+        return "Error al descargar el archivo", 500
 
 @app.route('/generar_carpeta', methods=['POST'])
 @login_required
@@ -1503,9 +1540,9 @@ def actualizar_indexacion():
         # Obtener datos del formulario
         data = request.json
         project_code = data.get('projectCode')
-        box_number = data.get('boxNumber')
-        document_present = data.get('documentPresent')
-        observation = data.get('observation')
+        box_number = data.get('boxNumber', '')  # Valor por defecto vacío
+        document_present = data.get('documentPresent', 'SI')  # Valor por defecto 'SI'
+        observation = data.get('observation', '')  # Valor por defecto vacío
         folder_id = data.get('folderId')
         
         if not project_code:
@@ -1636,7 +1673,7 @@ def actualizar_indexacion():
             for row in reader:
                 if len(row) > ocr_generado_idx and row[ocr_generado_idx] == folder_id:
                     # Actualizar fila existente: poner el ID de carpeta en carpeta_indexada
-                    row[indexada_idx] = folder_id  # Aquí cambiamos project_code por folder_id
+                    row[indexada_idx] = folder_id
                     folder_in_list = True
                     carpetas_updated = True
                 carpetas_rows.append(row)
@@ -1644,7 +1681,7 @@ def actualizar_indexacion():
         # Si no se encontró la carpeta, agregar una nueva fila (aunque esto no debería ocurrir)
         if not folder_in_list:
             new_row = [''] * len(carpetas_header)
-            new_row[indexada_idx] = folder_id  # Aquí cambiamos project_code por folder_id
+            new_row[indexada_idx] = folder_id
             new_row[ocr_generado_idx] = folder_id
             carpetas_rows.append(new_row)
             carpetas_updated = True
@@ -1952,87 +1989,53 @@ def view_pdf():
 @app.route('/extract_project_code')
 @login_required
 def extract_project_code():
-    """Extrae el código de proyecto del PDF OCR de una carpeta."""
+    """Extrae el código de proyecto desde el OCR de un PDF."""
     try:
-        folder_id = request.args.get('folder')
-        if not folder_id:
+        folder = request.args.get('folder')
+        if not folder:
             return jsonify({
                 'success': False,
-                'error': 'No se especificó ninguna carpeta'
+                'error': 'Falta el parámetro folder'
             }), 400
         
         # Importar la función desde el módulo
         from functions.boton_indexacion import extract_project_code_from_ocr
         
-        # Llamar a la función para extraer el código
-        result = extract_project_code_from_ocr(folder_id)
-        
+        result = extract_project_code_from_ocr(folder)
         return jsonify(result)
-    except Exception as e:
-        error_msg = f"Error al extraer código de proyecto: {str(e)}"
-        logger.error(error_msg)
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'error': error_msg
-        }), 500
-
-def extract_project_code_from_ocr(folder_name):
-    """
-    Extrae el código de proyecto del PDF OCR usando una expresión regular.
-    
-    Args:
-        folder_name (str): Nombre de la carpeta
-        
-    Returns:
-        dict: Resultado de la operación con el código encontrado o un error
-    """
-    try:
-        # Verificar que el archivo PDF existe
-        pdf_path = f"pdf_procesado/{folder_name}.pdf"
-        if not os.path.exists(pdf_path):
-            return {
-                'success': False,
-                'error': f"No se encontró el archivo PDF con OCR: {pdf_path}"
-            }
-        
-        # Abrir el PDF y extraer el texto
-        text = ""
-        with open(pdf_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(reader.pages)):
-                page = reader.pages[page_num]
-                text += page.extract_text()
-        
-        # Buscar el código de proyecto con la expresión regular
-        pattern = r'\b23\d{2}[A-Z]{1,2}\d{4}\b'
-        matches = re.findall(pattern, text)
-        
-        if matches:
-            # Devolver el primer código encontrado
-            return {
-                'success': True,
-                'project_code': matches[0],
-                'message': f"Código de proyecto encontrado: {matches[0]}"
-            }
-        else:
-            return {
-                'success': False,
-                'error': "No se encontró ningún código de proyecto en el documento"
-            }
     
     except Exception as e:
         logger.error(f"Error al extraer código de proyecto: {str(e)}")
         import traceback
-        error_trace = traceback.format_exc()
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/auto_indexar', methods=['POST'])
+@login_required
+def auto_indexar_endpoint():
+    """Ejecuta el proceso de auto-indexación para todas las carpetas sin indexar."""
+    try:
+        from functions.auto_indexacion import auto_indexar
         
-        return {
+        # Ejecutar proceso de auto-indexación
+        result = auto_indexar()
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Error en endpoint de auto-indexación: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
             'success': False,
             'error': str(e),
-            'traceback': error_trace,
-            'message': f"Error al procesar el PDF: {str(e)}"
-        }
+            'processed': 0,
+            'indexed': 0,
+            'errors': 0
+        }), 500
 
 def generate_folder_name():
     """Genera un nombre único para una carpeta con prefijo y número correlativo."""
