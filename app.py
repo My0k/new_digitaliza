@@ -203,6 +203,14 @@ def logout():
     flash('Has cerrado sesión correctamente', 'info')
     return redirect(url_for('login'))
 
+@app.route('/switch_user')
+def switch_user():
+    """Cierra la sesión actual y redirecciona a login para cambiar de usuario."""
+    session.pop('logged_in', None)
+    session.pop('username', None)
+    flash('Selecciona un usuario diferente para iniciar sesión', 'info')
+    return redirect(url_for('login'))
+
 @app.route('/')
 @login_required
 def index():
