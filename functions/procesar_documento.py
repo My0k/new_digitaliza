@@ -61,7 +61,13 @@ def generar_pdf_desde_imagenes(rut, folio, input_folder='input'):
         logger.warning(f"No hay imágenes en la carpeta {input_folder} para generar el PDF")
         return None
     
-    logger.info(f"Encontradas {len(image_files)} imágenes para incluir en el PDF")
+    # Ordenar las imágenes por nombre (que contiene timestamp)
+    image_files.sort()
+    
+    # Invertir el orden de las imágenes (la última será la primera en el PDF)
+    image_files.reverse()
+    
+    logger.info(f"Encontradas {len(image_files)} imágenes para incluir en el PDF (en orden invertido)")
     
     # Crear el PDF con las imágenes
     try:
