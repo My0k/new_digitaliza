@@ -20,6 +20,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import functools
 
+# Importar funciones personalizadas
+from functions.procesar_documento import procesar_y_subir_documento, buscar_por_folio, actualizar_csv
+
 app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_muy_segura'  # Cambiar en producción
 app.config['UPLOAD_FOLDER'] = 'input'
@@ -255,7 +258,7 @@ def upload_file():
 @login_required
 def refresh_images():
     """Endpoint para actualizar las imágenes sin recargar la página completa."""
-    latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
+    latest_images = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
     images_data = [get_image_data(img) for img in latest_images]
     
     # Si no hay imágenes, mostrar mensaje
@@ -474,9 +477,6 @@ def buscar_folio(folio):
                 'message': f"Folio '{folio}' no existe en el sistema"
             }), 404
         
-        # Importar la función desde el módulo
-        from functions.procesar_documento import buscar_por_folio
-        
         # Verificar que el archivo CSV existe
         csv_path = 'db_input.csv'
         if not os.path.exists(csv_path):
@@ -489,7 +489,7 @@ def buscar_folio(folio):
         
         if datos:
             # Si hay datos, obtener el RUT completo
-            rut_completo = f"{datos.get('rut', '')}{datos.get('dig_ver', '')}"
+            rut_completo = f"{datos.get('rut', '')}-{datos.get('dig_ver', '')}"
             
             # Importar y llamar a buscar_actualizar_folio para mostrar la alerta
             from functions.new_folio import buscar_actualizar_folio
@@ -539,76 +539,32 @@ def generar_pdf():
         if not rut_number or not rut_dv or not folio:
             return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
         
-        # Importar y llamar a la función de búsqueda/actualización de folio
-        from functions.new_folio import buscar_actualizar_folio
-        resultado_busqueda = buscar_actualizar_folio(f"{rut_number}{rut_dv}", folio)
+        # Construir el RUT completo
+        rut_completo = f"{rut_number}-{rut_dv}"
         
-        # Si la búsqueda falla, informar al usuario
-        if not resultado_busqueda.get('success', False):
+        # Obtener el nombre de usuario de la sesión
+        usuario = session.get('username', 'Sistema')
+        
+        logger.info(f"Iniciando generación de PDF para RUT: {rut_completo}, Folio: {folio}, Usuario: {usuario}")
+        
+        # 1. Usar la función procesar_y_subir_documento de procesar_documento.py
+        resultado = procesar_y_subir_documento(rut_completo, folio, usuario)
+        
+        if resultado.get('status') != 'success':
+            logger.error(f"Error al procesar y subir documento: {resultado.get('message')}")
             return jsonify({
                 'success': False, 
-                'error': resultado_busqueda.get('message', 'Error al buscar el folio')
-            }), 400
-            
-        # Crear carpeta para PDFs si no existe
-        pdf_folder = 'pdf_procesado'
-        os.makedirs(pdf_folder, exist_ok=True)
+                'error': resultado.get('message', 'Error al procesar documento')
+            }), 500
         
-        # Nombre del archivo PDF
-        filename = f"{rut_number}{rut_dv}_{folio}.pdf"
-        pdf_path = os.path.join(pdf_folder, filename)
+        # Agregar información adicional a la respuesta
+        resultado['success'] = True
+        resultado['rut'] = rut_completo
+        resultado['folio'] = folio
+        resultado['filename'] = os.path.basename(resultado.get('pdf_path', ''))
         
-        # Si no se especificaron imágenes, usar todas las disponibles
-        if not selected_images:
-            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
-        else:
-            # Usar las imágenes seleccionadas
-            image_files = [os.path.join(app.config['UPLOAD_FOLDER'], img) for img in selected_images]
-        
-        if not image_files:
-            return jsonify({'success': False, 'error': 'No hay imágenes para generar el PDF'}), 400
-        
-        # Crear el PDF con las imágenes
-        from PIL import Image
-        from reportlab.lib.utils import ImageReader
-        
-        # Crear un PDF con las imágenes
-        c = canvas.Canvas(pdf_path, pagesize=letter)
-        
-        # Añadir cada imagen como una página del PDF
-        for img_path in image_files:
-            img = Image.open(img_path)
-            img_width, img_height = img.size
-            
-            # Ajustar tamaño para que quepa en la página
-            page_width, page_height = letter
-            ratio = min(page_width / img_width, page_height / img_height) * 0.9
-            new_width = img_width * ratio
-            new_height = img_height * ratio
-            
-            # Posicionar en el centro de la página
-            x = (page_width - new_width) / 2
-            y = (page_height - new_height) / 2
-            
-            c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-            c.showPage()
-        
-        # Guardar el PDF
-        c.save()
-        
-        # Actualizar el CSV con el nombre del documento
-        actualizado = actualizar_csv(folio, filename)
-        
-        if not actualizado:
-            logger.warning(f"El PDF se generó correctamente en {pdf_path}, pero no se pudo actualizar el CSV para el folio {folio}")
-            # A pesar de no actualizar el CSV, consideramos el proceso como exitoso para el usuario
-        
-        logger.info(f"PDF generado correctamente: {pdf_path}")
-        return jsonify({
-            'success': True, 
-            'filename': filename,
-            'message': resultado_busqueda.get('message', 'Proceso completado exitosamente')
-        }), 200
+        logger.info(f"PDF generado y enviado exitosamente: {resultado}")
+        return jsonify(resultado), 200
     
     except Exception as e:
         error_msg = f"Error al generar PDF: {str(e)}"
@@ -617,58 +573,19 @@ def generar_pdf():
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
 
-def actualizar_csv(folio, nombre_documento):
-    """Actualiza el CSV con el nombre del documento."""
-    try:
-        csv_path = 'db_input.csv'
-        temp_file = 'db_input_temp.csv'
-        
-        # Verificar si el archivo existe
-        if not os.path.exists(csv_path):
-            logger.error(f"Archivo CSV no encontrado: {csv_path}")
-            return False
-        
-        # Leer el CSV y actualizar la fila correspondiente
-        actualizado = False
-        with open(csv_path, 'r', encoding='utf-8') as file_in, open(temp_file, 'w', newline='', encoding='utf-8') as file_out:
-            csv_reader = csv.DictReader(file_in)
-            fieldnames = csv_reader.fieldnames
-            
-            csv_writer = csv.DictWriter(file_out, fieldnames=fieldnames)
-            csv_writer.writeheader()
-            
-            for row in csv_reader:
-                if row.get('folio') == folio:
-                    row['nombre_documento'] = nombre_documento
-                    actualizado = True
-                csv_writer.writerow(row)
-        
-        # Reemplazar el archivo original con el temporal
-        if actualizado:
-            os.replace(temp_file, csv_path)
-            logger.info(f"CSV actualizado correctamente para el folio {folio}")
-            return True
-        else:
-            os.remove(temp_file)
-            logger.warning(f"No se encontró el folio {folio} en el CSV")
-            return False
-    
-    except Exception as e:
-        logger.error(f"Error al actualizar CSV: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return False
-
 @app.route('/exportar_gesdoc')
 @login_required
 def exportar_documentos_gesdoc():
     """Ejecuta la función de exportación a Gesdoc y devuelve los resultados."""
     try:
+        # Obtener el nombre de usuario de la sesión
+        usuario = session.get('username', 'Sistema')
+        
         # Importar la función desde el módulo
         from functions.exportar_gesdoc import exportar_a_gesdoc
         
-        # Ejecutar la función de exportación
-        resultado = exportar_a_gesdoc()
+        # Ejecutar la función de exportación con el usuario actual
+        resultado = exportar_a_gesdoc(usuario)
         
         # Retornar el resultado como JSON
         return jsonify(resultado), 200 if resultado['success'] else 400
@@ -688,6 +605,9 @@ if __name__ == '__main__':
     os.makedirs('templates', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
     os.makedirs('static/js', exist_ok=True)
+    
+    # Asegurar que existe la carpeta para PDFs procesados
+    os.makedirs('pdf_procesado', exist_ok=True)
     
     # Iniciar el monitoreo de la carpeta en un hilo separado
     monitor_thread = start_folder_monitor()

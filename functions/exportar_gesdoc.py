@@ -1,6 +1,8 @@
 import csv
 import logging
 import os
+import json
+from functions.procesar_documento import procesar_y_subir_documento
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -102,7 +104,7 @@ def obtener_documentos_para_exportar():
                     apellido_mat = campos[idx_apellido_mat].strip() if idx_apellido_mat >= 0 and idx_apellido_mat < len(campos) else ""
                     
                     nombre_completo = f"{nombres} {apellido_pat} {apellido_mat}".strip()
-                    rut_completo = f"{rut}{dig_ver}"
+                    rut_completo = f"{rut}-{dig_ver}"
                     
                     documento = {
                         'nombre_documento': nombre_documento,
@@ -128,9 +130,12 @@ def obtener_documentos_para_exportar():
         logger.error(traceback.format_exc())
         return []
 
-def exportar_a_gesdoc():
+def exportar_a_gesdoc(usuario="Sistema"):
     """
     Exporta los documentos elegibles a Gesdoc y devuelve un mensaje para mostrar en la alerta.
+    
+    Args:
+        usuario (str): Nombre del usuario que está realizando la exportación
     
     Returns:
         dict: Resultado de la operación con la siguiente estructura:
@@ -138,6 +143,7 @@ def exportar_a_gesdoc():
             - mensaje (str): Mensaje que se mostrará en la alerta
             - documentos (list): Lista de documentos que se exportaron (o se exportarían)
             - total (int): Total de documentos que se exportaron (o se exportarían)
+            - resultados (list): Lista de resultados de las operaciones individuales
     """
     try:
         # Verificar si el archivo CSV existe
@@ -151,165 +157,20 @@ def exportar_a_gesdoc():
                 'documentos': [],
                 'total': 0
             }
-            
-        # Intentar leer algunas filas del CSV para verificar su contenido
-        sample_rows = []
-        headers = []
-        try:
-            with open(csv_path, 'r', encoding='utf-8') as file:
-                lineas = file.readlines()
-                
-                if not lineas:
-                    return {
-                        'success': False,
-                        'mensaje': "El archivo CSV está vacío",
-                        'documentos': [],
-                        'total': 0
-                    }
-                
-                # Obtener y corregir los encabezados
-                headers = lineas[0].strip().split(',')
-                
-                # Corregir el BOM si está presente
-                if headers and headers[0].startswith('\ufeff'):
-                    headers[0] = headers[0].replace('\ufeff', '')
-                    logger.info(f"Se eliminó el BOM del primer encabezado: '{headers[0]}'")
-                
-                # Tomar algunas filas como muestra
-                for i in range(1, min(6, len(lineas))):
-                    campos = lineas[i].strip().split(',')
-                    row_dict = {}
-                    for j, header in enumerate(headers):
-                        if j < len(campos):
-                            row_dict[header] = campos[j]
-                    sample_rows.append(row_dict)
-            
-            logger.info(f"Headers en CSV: {headers}")
-            for i, row in enumerate(sample_rows):
-                rut_value = row.get(headers[0], 'N/A')  # Usar el primer encabezado corregido
-                dig_ver_value = row.get('dig_ver', 'N/A')
-                folio_value = row.get('folio', 'N/A')
-                nombre_documento_value = row.get('nombre_documento', 'N/A')
-                logger.info(f"Muestra fila {i+1}: rut={rut_value}, dig_ver={dig_ver_value}, folio={folio_value}, nombre_documento={nombre_documento_value}")
-        except Exception as e:
-            logger.error(f"Error al leer muestra del CSV: {str(e)}")
         
         # Obtener documentos exportables
         documentos = obtener_documentos_para_exportar()
         total_documentos = len(documentos)
         
         if total_documentos == 0:
-            logger.warning("No se encontraron documentos para exportar. Verificando contenido del CSV...")
-            
-            # Contar total de filas en el CSV (excluyendo encabezados)
-            total_rows = 0
-            docs_with_rut = 0
-            docs_with_folio = 0
-            docs_with_nombre = 0
-            
-            # Detalle de fila con nombre_documento
-            filas_con_nombre_documento = []
-            
-            try:
-                # Leer todo el archivo CSV de nuevo
-                with open(csv_path, 'r', encoding='utf-8') as file:
-                    lineas = file.readlines()
-                
-                if len(lineas) <= 1:
-                    return {
-                        'success': False,
-                        'mensaje': "El archivo CSV no tiene suficientes datos",
-                        'documentos': [],
-                        'total': 0
-                    }
-                
-                # Obtener los encabezados y corregir el BOM
-                headers = lineas[0].strip().split(',')
-                if headers and headers[0].startswith('\ufeff'):
-                    headers[0] = headers[0].replace('\ufeff', '')
-                
-                # Buscar el índice de 'rut' de manera más flexible
-                idx_rut = -1
-                for i, header in enumerate(headers):
-                    if header.lower() == 'rut' or header.lower().endswith('rut'):
-                        idx_rut = i
-                        break
-                
-                idx_dig_ver = headers.index('dig_ver') if 'dig_ver' in headers else -1
-                idx_folio = headers.index('folio') if 'folio' in headers else -1
-                idx_nombre_documento = headers.index('nombre_documento') if 'nombre_documento' in headers else -1
-                
-                logger.info(f"Índices de columnas - rut: {idx_rut}, dig_ver: {idx_dig_ver}, folio: {idx_folio}, nombre_documento: {idx_nombre_documento}")
-                
-                # Analizar cada fila
-                for row_num, linea in enumerate(lineas[1:], 1):
-                    if not linea.strip():
-                        continue  # Ignorar líneas vacías
-                    
-                    campos = linea.strip().split(',')
-                    
-                    # Verificar que haya suficientes campos
-                    max_idx = max(idx for idx in [idx_rut, idx_dig_ver, idx_folio, idx_nombre_documento] if idx >= 0)
-                    if len(campos) <= max_idx:
-                        continue
-                    
-                    # Obtener valores
-                    rut_value = campos[idx_rut].strip() if idx_rut >= 0 else ""
-                    dig_ver_value = campos[idx_dig_ver].strip() if idx_dig_ver >= 0 else ""
-                    folio_value = campos[idx_folio].strip() if idx_folio >= 0 else ""
-                    nombre_documento_value = campos[idx_nombre_documento].strip() if idx_nombre_documento >= 0 else ""
-                    
-                    # Contar filas con valores en cada columna
-                    total_rows += 1
-                    if rut_value:
-                        docs_with_rut += 1
-                    if folio_value:
-                        docs_with_folio += 1
-                    if nombre_documento_value:
-                        docs_with_nombre += 1
-                        # Guardar detalles de filas con nombre_documento para mostrar
-                        filas_con_nombre_documento.append({
-                            'fila': row_num,
-                            'rut': rut_value,
-                            'dig_ver': dig_ver_value,
-                            'folio': folio_value,
-                            'nombre_documento': nombre_documento_value
-                        })
-            except Exception as e:
-                logger.error(f"Error al analizar CSV: {str(e)}")
-                import traceback
-                logger.error(traceback.format_exc())
-            
-            # Construir mensaje de debug con detalles de filas que tienen nombre_documento
-            detalles_filas = []
-            for fila in filas_con_nombre_documento:
-                detalle = (f"Fila {fila['fila']}: nombre_documento='{fila['nombre_documento']}', "
-                           f"rut='{fila['rut']}', dig_ver='{fila['dig_ver']}', folio='{fila['folio']}'")
-                detalles_filas.append(detalle)
-            
-            debug_msg = (f"No hay documentos para exportar a Gesdoc. Estadísticas del CSV: "
-                       f"Total filas: {total_rows}, "
-                       f"Con RUT: {docs_with_rut}, "
-                       f"Con folio: {docs_with_folio}, "
-                       f"Con nombre_documento: {docs_with_nombre}")
-            
-            if detalles_filas:
-                debug_msg += "\n\nDetalles de filas con nombre_documento:\n" + "\n".join(detalles_filas)
-            
+            # Mostrar mensaje de que no hay documentos para exportar
+            debug_msg = "No hay documentos para exportar a Gesdoc."
             logger.info(debug_msg)
-            
             return {
                 'success': False,
                 'mensaje': debug_msg,
                 'documentos': [],
-                'total': 0,
-                'debug': {
-                    'total_rows': total_rows,
-                    'with_rut': docs_with_rut,
-                    'with_folio': docs_with_folio,
-                    'with_nombre': docs_with_nombre,
-                    'filas_con_nombre_documento': filas_con_nombre_documento
-                }
+                'total': 0
             }
         
         # Construir mensaje para la alerta
@@ -328,14 +189,62 @@ def exportar_a_gesdoc():
         if total_documentos > 5:
             detalles.append(f"- ... y {total_documentos - 5} más")
         
-        # Poner acá lógica para exportar a odoo
+        # Lógica para exportar a Gesdoc
+        resultados = []
+        documentos_procesados = 0
+        documentos_exitosos = 0
+        
+        for doc in documentos:
+            try:
+                # Verificar si el PDF ya existe
+                pdf_path = os.path.join('pdf_procesado', doc['nombre_documento'])
+                
+                if os.path.exists(pdf_path):
+                    # El PDF ya existe, enviar directamente a Gesdoc
+                    logger.info(f"PDF encontrado: {pdf_path}")
+                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario)
+                else:
+                    # Necesitamos generar el PDF primero
+                    logger.info(f"PDF no encontrado: {pdf_path}, generando...")
+                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario)
+                
+                # Guardar el resultado
+                resultado['documento'] = doc['nombre_documento']
+                resultado['folio'] = doc['folio']
+                resultado['rut'] = doc['rut']
+                resultados.append(resultado)
+                
+                # Contar documentos procesados exitosamente
+                documentos_procesados += 1
+                if resultado.get('status') == 'success':
+                    documentos_exitosos += 1
+            
+            except Exception as e:
+                error_msg = f"Error al procesar documento {doc['nombre_documento']}: {str(e)}"
+                logger.error(error_msg)
+                resultados.append({
+                    'status': 'error',
+                    'message': error_msg,
+                    'documento': doc['nombre_documento'],
+                    'folio': doc['folio'],
+                    'rut': doc['rut']
+                })
+        
+        # Determinar si la exportación fue exitosa en general
+        success = documentos_exitosos > 0
+        
+        # Actualizar el mensaje con el resultado
+        mensaje_resultado = f"Se exportaron {documentos_exitosos} de {total_documentos} documentos a Gesdoc."
         
         return {
-            'success': True,
-            'mensaje': mensaje,
+            'success': success,
+            'mensaje': mensaje_resultado,
             'detalles': detalles,
             'documentos': documentos,
-            'total': total_documentos
+            'total': total_documentos,
+            'resultados': resultados,
+            'procesados': documentos_procesados,
+            'exitosos': documentos_exitosos
         }
     
     except Exception as e:
@@ -349,3 +258,23 @@ def exportar_a_gesdoc():
             'documentos': [],
             'total': 0
         }
+
+if __name__ == "__main__":
+    # Código para pruebas
+    import json
+    
+    # Configurar logging para pruebas
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Obtener documentos para exportar
+    docs = obtener_documentos_para_exportar()
+    print(f"Total de documentos para exportar: {len(docs)}")
+    
+    # Mostrar los primeros 3 documentos
+    for i, doc in enumerate(docs[:3]):
+        print(f"Documento {i+1}: {json.dumps(doc, indent=2)}")
+    
+    # Ejecutar exportación
+    resultado = exportar_a_gesdoc("test_user")
+    print("\nResultado de exportación:")
+    print(json.dumps(resultado, indent=2))
