@@ -326,69 +326,111 @@ def buscar_actualizar_folio(rut, folio):
         
         url = f"{base_url}{api_path}"
         
-        # Configurar headers y parámetros
+        # Configurar headers
         headers = {
             "apikey": api_key,
             "Authorization": f"Bearer {auth_token}"
         }
         
-        params = {
-            "rut": rut,
-            "folio": folio
-        }
+        # Preparar diferentes formatos de RUT para probar
+        rut_formats = []
         
-        # Realizar la petición a la API
-        logger.info(f"Realizando petición a: {url}")
-        logger.info(f"Parámetros: {params}")
-        
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()  # Lanzar excepción para errores HTTP
-        
-        logger.info(f"Código de estado: {response.status_code}")
-        result = response.json()
-        
-        # Verificar si la respuesta fue exitosa
-        if result and result.get("status") == "success" and result.get("data"):
-            # Actualizar o añadir registro al CSV
-            api_data = result.get("data", {})
-            success = update_csv_record(rut, folio, api_data, csv_file)
-            
-            if success:
-                return {
-                    "success": True,
-                    "message": f"Registro actualizado exitosamente para RUT: {rut}, Folio: {folio}",
-                    "data": {
-                        "rut": rut,
-                        "folio": folio,
-                        "estado": "completado",
-                        "api_response": result
-                    }
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Error al actualizar el archivo CSV para RUT: {rut}, Folio: {folio}",
-                    "error": "CSV_UPDATE_ERROR",
-                    "api_response": result
-                }
+        # Formato 1: solo el número sin DV (preferido según ejemplo)
+        if '-' in rut:
+            rut_formats.append(rut.split('-')[0])
         else:
-            return {
-                "success": False,
-                "message": f"No se encontraron resultados en la API para RUT: {rut}, Folio: {folio}",
-                "error": "API_NO_DATA",
-                "api_response": result
-            }
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error en la petición HTTP: {e}")
-        error_message = str(e)
-        if hasattr(e, 'response') and e.response:
-            error_message += f" - Status: {e.response.status_code}, Response: {e.response.text}"
+            # Si no tiene guion, asumimos que es solo el número
+            rut_formats.append(rut)
         
+        # Formato 2: RUT completo con guion
+        if '-' not in rut and len(rut) > 1:
+            # Intentar agregar guion si no lo tiene
+            rut_formats.append(f"{rut[:-1]}-{rut[-1]}")
+        else:
+            rut_formats.append(rut)
+        
+        # Formato 3: RUT sin guion ni DV (alternativa)
+        if '-' in rut:
+            rut_without_dv = rut.split('-')[0]
+            rut_formats.append(rut_without_dv)
+        
+        # Inicializar variables para manejar los resultados
+        final_result = None
+        error_messages = []
+        
+        # Probar cada formato de RUT
+        for i, rut_format in enumerate(rut_formats):
+            # Evitar duplicados
+            if i > 0 and rut_format in rut_formats[:i]:
+                continue
+                
+            logger.info(f"Intentando con formato de RUT #{i+1}: {rut_format}")
+            
+            params = {
+                "rut": rut_format,
+                "folio": folio
+            }
+            
+            # Realizar la petición a la API
+            logger.info(f"Realizando petición a: {url}")
+            logger.info(f"Parámetros: {params}")
+            
+            try:
+                # Intentar con verificación SSL
+                response = requests.get(url, headers=headers, params=params)
+                response.raise_for_status()
+                
+                logger.info(f"Código de estado: {response.status_code}")
+                result = response.json()
+                
+                # Verificar si la respuesta fue exitosa
+                if result and result.get("status") == "success" and result.get("data"):
+                    # Actualizar o añadir registro al CSV
+                    api_data = result.get("data", {})
+                    success = update_csv_record(rut, folio, api_data, csv_file)
+                    
+                    if success:
+                        final_result = {
+                            "success": True,
+                            "message": f"Registro actualizado exitosamente para RUT: {rut}, Folio: {folio}",
+                            "data": {
+                                "rut": rut,
+                                "folio": folio,
+                                "formato_rut_usado": rut_format,
+                                "estado": "completado",
+                                "api_response": result
+                            }
+                        }
+                        # Si encontramos un resultado exitoso, salir del bucle
+                        break
+                    else:
+                        error_messages.append(f"Formato {rut_format}: Error al actualizar CSV")
+                else:
+                    error_messages.append(f"Formato {rut_format}: No se encontraron datos")
+            except requests.exceptions.RequestException as e:
+                error_message = f"Formato {rut_format}: {str(e)}"
+                if hasattr(e, 'response') and e.response:
+                    error_message += f" - Status: {e.response.status_code}"
+                    try:
+                        error_message += f", Response: {e.response.text[:200]}"
+                    except:
+                        pass
+                
+                error_messages.append(error_message)
+                logger.warning(f"Error con formato {rut_format}: {error_message}")
+        
+        # Si tenemos un resultado exitoso, devolverlo
+        if final_result:
+            return final_result
+        
+        # Si llegamos aquí, ninguno de los formatos funcionó
         return {
             "success": False,
-            "message": f"Error al realizar la petición a la API: {error_message}",
-            "error": "API_REQUEST_ERROR"
+            "message": f"No se encontraron resultados en la API para RUT: {rut}, Folio: {folio}. Se intentaron varios formatos de RUT.",
+            "error": "API_NO_DATA",
+            "intentos": error_messages
         }
+    
     except Exception as e:
         logger.error(f"Error al buscar/actualizar folio: {str(e)}")
         import traceback

@@ -473,6 +473,16 @@ function processDocument() {
         return;
     }
     
+    // Obtener el RUT si está disponible
+    const rutNumber = document.getElementById('studentRutNumber').value.trim();
+    const rutDV = document.getElementById('studentRutDV').value.trim();
+    let rutParameter = '';
+    
+    // Si tenemos RUT completo, incluirlo como parámetro para ayudar en la búsqueda API
+    if (rutNumber && rutDV) {
+        rutParameter = `?rut=${rutNumber}-${rutDV}`;
+    }
+    
     // Mostrar indicador de carga
     const processBtn = document.getElementById('processBtn');
     const originalText = processBtn.innerHTML;
@@ -480,7 +490,7 @@ function processDocument() {
     processBtn.disabled = true;
     
     // Llamar al endpoint para buscar el folio
-    fetch(`/buscar_folio/${folio}`)
+    fetch(`/buscar_folio/${folio}${rutParameter}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -499,29 +509,16 @@ function processDocument() {
                 // Mostrar botón de finalizar procesado
                 mostrarBotonFinalizar();
             } else {
-                // Si el folio no se encuentra, importar la función desde new_folio.py
-                // y mostrar el mensaje correspondiente en lugar del error genérico
-                if (data.message && data.message.includes('no encontrado')) {
-                    // Extraer el RUT del formulario (si está disponible)
-                    const rutNumber = document.getElementById('studentRutNumber').value.trim();
-                    const rutDV = document.getElementById('studentRutDV').value.trim();
-                    let rutCompleto = '';
-                    
-                    if (rutNumber && rutDV) {
-                        rutCompleto = `${rutNumber}${rutDV}`;
-                    }
-                    
-                    // Si no hay RUT en el formulario, usar un placeholder
-                    if (!rutCompleto) {
-                        rutCompleto = "No especificado";
-                    }
-                    
-                    // Mostrar el mensaje de alerta para folio no encontrado
-                    alert(`Buscando y actualizando folio para rut: ${rutCompleto} folio: ${folio}`);
-                } else {
-                    // Para otros errores, mostrar el mensaje normal
-                    alert('Error: ' + (data.error || 'No se encontró el folio especificado'));
+                // Construir mensaje de error
+                let errorMessage = data.error || 'No se encontró el folio especificado';
+                
+                // Si hay un mensaje específico de la API, mostrarlo
+                if (data.api_message) {
+                    errorMessage = `${errorMessage}\n\nRespuesta de la API: ${data.api_message}`;
                 }
+                
+                // Mostrar el mensaje de error
+                alert(errorMessage);
             }
         })
         .catch(error => {
@@ -598,10 +595,25 @@ function finalizarProcesado() {
         },
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        // Capturar el código de estado para poder manejar errores 404 y otros
+        if (!response.ok) {
+            return response.json().then(errorData => {
+                throw { status: response.status, data: errorData };
+            });
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
-            alert(`Documento procesado correctamente.\nPDF guardado como: ${data.filename}`);
+            let successMessage = `Documento procesado correctamente.\nPDF guardado como: ${data.filename}`;
+            
+            // Si hay información sobre el formato de RUT usado, agregarla
+            if (data.formato_rut_usado) {
+                successMessage += `\n\nFormato de RUT usado: ${data.formato_rut_usado}`;
+            }
+            
+            alert(successMessage);
             
             // Restaurar la interfaz para una nueva digitalización
             document.getElementById('documentDataForm').reset();
@@ -626,7 +638,45 @@ function finalizarProcesado() {
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Error al generar el PDF');
+        
+        // Manejar errores específicos
+        if (error.status === 404 && error.data && error.data.error) {
+            // Si es un error 404 (folio no encontrado) mostrar un mensaje más específico
+            let errorMessage = error.data.error;
+            
+            // Si hay un mensaje de la API, agregarlo
+            if (error.data.api_message) {
+                errorMessage += '\n\nDetalle del error: ' + error.data.api_message;
+                
+                // Si hay un tipo de error específico, agregarlo
+                if (error.data.error_type) {
+                    errorMessage += `\nTipo de error: ${error.data.error_type}`;
+                }
+                
+                // Si hay intentos con diferentes formatos, mostrarlos
+                if (error.data.intentos && Array.isArray(error.data.intentos)) {
+                    errorMessage += '\n\nIntentos realizados con diferentes formatos de RUT:';
+                    error.data.intentos.forEach((intento, index) => {
+                        errorMessage += `\n${index + 1}. ${intento}`;
+                    });
+                }
+            }
+            
+            // Sugerir acciones si es un error de API
+            if (error.data.error_type === 'API_NO_DATA' || error.data.error_type === 'API_REQUEST_ERROR') {
+                errorMessage += '\n\nSugerencia: Verifique que el folio y RUT sean correctos y estén registrados en el sistema.';
+                
+                // Si contiene Bad Request, agregar una sugerencia específica sobre el formato del RUT
+                if (error.data.api_message && error.data.api_message.includes('Bad Request')) {
+                    errorMessage += '\n\nEs posible que el formato del RUT no sea el esperado por la API. Intente nuevamente o contacte al administrador del sistema.';
+                }
+            }
+            
+            alert(errorMessage);
+        } else {
+            // Otros errores
+            alert('Error al generar el PDF: ' + (error.data?.error || 'Error desconocido'));
+        }
     })
     .finally(() => {
         // Restaurar el botón

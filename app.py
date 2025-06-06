@@ -465,24 +465,11 @@ def start_folder_monitor():
 def buscar_folio(folio):
     """Busca un folio en el CSV y devuelve los datos asociados."""
     try:
+        # Obtener el RUT de la solicitud (si está disponible)
+        rut = request.args.get('rut', '')
+        
         # Importar la función de verificación desde new_folio.py
-        from functions.new_folio import verificar_folio_existe
-        
-        # Verificar si el folio existe
-        if not verificar_folio_existe(folio):
-            logger.warning(f"Folio '{folio}' no encontrado en la verificación previa")
-            return jsonify({
-                'success': False, 
-                'error': 'Folio no encontrado',
-                'message': f"Folio '{folio}' no existe en el sistema"
-            }), 404
-        
-        # Verificar que el archivo CSV existe
-        csv_path = 'db_input.csv'
-        if not os.path.exists(csv_path):
-            error_msg = f"Archivo CSV no encontrado: {csv_path}"
-            logger.error(error_msg)
-            return jsonify({'success': False, 'error': error_msg}), 404
+        from functions.new_folio import verificar_folio_existe, buscar_actualizar_folio
         
         # Buscar el folio
         datos = buscar_por_folio(folio)
@@ -492,7 +479,6 @@ def buscar_folio(folio):
             rut_completo = f"{datos.get('rut', '')}-{datos.get('dig_ver', '')}"
             
             # Importar y llamar a buscar_actualizar_folio para mostrar la alerta
-            from functions.new_folio import buscar_actualizar_folio
             resultado_busqueda = buscar_actualizar_folio(rut_completo, folio)
             
             # Añadir el mensaje a los datos de respuesta
@@ -500,9 +486,35 @@ def buscar_folio(folio):
             
             return jsonify({'success': True, 'datos': datos}), 200
         else:
-            # Obtener algunos folios disponibles para ayudar en la depuración
+            # Si no se encuentra localmente, intentar obtenerlo de la API
+            logger.info(f"Folio '{folio}' no encontrado localmente. Intentando obtener de la API...")
+            
+            # Construir el RUT completo si está disponible
+            rut_completo = rut if rut else ""
+            
+            # Llamar a la API para obtener los datos
+            resultado_api = buscar_actualizar_folio(rut_completo, folio)
+            
+            if resultado_api.get('success', False):
+                # Si la API devuelve datos, buscar nuevamente en el CSV local
+                logger.info(f"Datos obtenidos de la API para folio '{folio}'. Buscando en CSV actualizado...")
+                datos_actualizados = buscar_por_folio(folio)
+                
+                if datos_actualizados:
+                    datos_actualizados['mensaje_alerta'] = resultado_api.get('message', 'Datos actualizados correctamente desde la API')
+                    return jsonify({'success': True, 'datos': datos_actualizados}), 200
+                else:
+                    # Si por alguna razón no se encuentra en el CSV después de actualizar
+                    return jsonify({
+                        'success': False, 
+                        'error': 'Error inesperado al recuperar los datos actualizados',
+                        'message': 'La API devolvió datos pero no se pudieron recuperar del CSV'
+                    }), 500
+            
+            # Si la API tampoco encuentra el folio, obtener algunos folios disponibles para ayudar en la depuración
             folios_disponibles = []
             try:
+                csv_path = 'db_input.csv'
                 with open(csv_path, 'r', encoding='utf-8') as file:
                     csv_reader = csv.DictReader(file)
                     folios_disponibles = [row.get('folio', '') for row in csv_reader][:5]
@@ -511,10 +523,15 @@ def buscar_folio(folio):
             
             error_msg = f"Folio '{folio}' no encontrado. Ejemplos de folios disponibles: {folios_disponibles}"
             logger.warning(error_msg)
+            
+            # Devolver también el mensaje de la API para más información
+            api_message = resultado_api.get('message', 'No se encontró el folio en el sistema')
+            
             return jsonify({
                 'success': False, 
                 'error': 'Folio no encontrado',
                 'message': error_msg,
+                'api_message': api_message,
                 'folios_ejemplo': folios_disponibles
             }), 404
     except Exception as e:
@@ -547,6 +564,33 @@ def generar_pdf():
         
         logger.info(f"Iniciando generación de PDF para RUT: {rut_completo}, Folio: {folio}, Usuario: {usuario}")
         
+        # Inicializar resultado_api como None
+        resultado_api = None
+        
+        # Verificar primero si el folio existe en el sistema
+        from functions.new_folio import verificar_folio_existe, buscar_actualizar_folio
+        
+        if not verificar_folio_existe(folio):
+            logger.info(f"Folio {folio} no encontrado. Intentando actualizar desde API...")
+            # Llamar a la función buscar_actualizar_folio para intentar obtener los datos de la API
+            resultado_api = buscar_actualizar_folio(rut_completo, folio)
+            
+            if not resultado_api.get('success', False):
+                # Crear un mensaje de error más descriptivo
+                error_details = resultado_api.get('message', 'No se pudo obtener información de la API')
+                error_type = resultado_api.get('error', 'UNKNOWN_ERROR')
+                
+                logger.error(f"Error al obtener datos de la API: {error_type} - {error_details}")
+                
+                return jsonify({
+                    'success': False,
+                    'error': f"El folio {folio} no existe en el sistema y no se pudo obtener de la API.",
+                    'api_message': error_details,
+                    'error_type': error_type
+                }), 404
+            
+            logger.info(f"Folio {folio} actualizado exitosamente desde la API: {resultado_api.get('message')}")
+        
         # 1. Usar la función procesar_y_subir_documento de procesar_documento.py
         resultado = procesar_y_subir_documento(rut_completo, folio, usuario)
         
@@ -562,6 +606,10 @@ def generar_pdf():
         resultado['rut'] = rut_completo
         resultado['folio'] = folio
         resultado['filename'] = os.path.basename(resultado.get('pdf_path', ''))
+        
+        # Agregar información sobre el formato de RUT usado si está disponible
+        if resultado_api and 'data' in resultado_api and 'formato_rut_usado' in resultado_api['data']:
+            resultado['formato_rut_usado'] = resultado_api['data']['formato_rut_usado']
         
         logger.info(f"PDF generado y enviado exitosamente: {resultado}")
         return jsonify(resultado), 200
