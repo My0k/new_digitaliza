@@ -15,10 +15,47 @@ import shutil
 import multiprocessing
 import time
 import threading
+import codecs
+import csv
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def safe_csv_handling(csv_file, mode='r', data_to_write=None):
+    """
+    Maneja de forma segura la lectura y escritura de archivos CSV con encoding UTF-8.
+    Gestiona el BOM (Byte Order Mark) y otros problemas de codificación.
+    
+    Args:
+        csv_file (str): Ruta al archivo CSV
+        mode (str): Modo de apertura ('r' para lectura, 'w' para escritura)
+        data_to_write (list): Datos a escribir si mode es 'w'
+        
+    Returns:
+        list: Datos leídos del CSV si mode es 'r'
+        bool: True si la escritura fue exitosa, si mode es 'w'
+    """
+    try:
+        if mode == 'r':
+            # Leer el archivo con UTF-8 y manejar BOM
+            with open(csv_file, 'r', encoding='utf-8-sig', newline='', errors='replace') as f:
+                reader = csv.reader(f)
+                return list(reader)
+        elif mode == 'w':
+            # Escribir el archivo con UTF-8 sin BOM
+            with open(csv_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                for row in data_to_write:
+                    # Limpiar cualquier BOM residual en los datos
+                    clean_row = [str(cell).replace('\ufeff', '') if cell else '' for cell in row]
+                    writer.writerow(clean_row)
+            return True
+    except Exception as e:
+        logger.error(f"Error en manejo de CSV {csv_file}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return [] if mode == 'r' else False
 
 def generar_ocr_carpeta(folder_id):
     """
@@ -363,18 +400,16 @@ def generar_pdf_simple(folder_id):
         
         # Actualizar archivo de carpetas procesadas
         try:
-            import csv
-            
             carpetas_csv = 'carpetas.csv'
             carpetas_headers = ['carpeta_indexada', 'ocr_generado']
             carpetas_rows = []
             
             # Leer archivo si existe
             if os.path.exists(carpetas_csv) and os.path.getsize(carpetas_csv) > 0:
-                with open(carpetas_csv, 'r', newline='', encoding='utf-8') as csvfile:
-                    reader = csv.reader(csvfile)
-                    carpetas_headers = next(reader)  # Leer encabezados
-                    carpetas_rows = list(reader)  # Leer filas existentes
+                carpetas_data = safe_csv_handling(carpetas_csv, 'r')
+                if carpetas_data:
+                    carpetas_headers = carpetas_data[0]
+                    carpetas_rows = carpetas_data[1:]
             
             # Buscar si la carpeta ya existe en el CSV
             folder_exists = False
@@ -388,13 +423,12 @@ def generar_pdf_simple(folder_id):
                 carpetas_rows.append(['', folder_id])
             
             # Escribir archivo actualizado
-            with open(carpetas_csv, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(carpetas_headers)
-                writer.writerows(carpetas_rows)
+            all_rows = [carpetas_headers] + carpetas_rows
+            if safe_csv_handling(carpetas_csv, 'w', all_rows):
+                logger.info(f"Carpeta {folder_id} registrada en carpetas.csv como ocr_generado")
+            else:
+                logger.error(f"Error al actualizar carpetas.csv para la carpeta {folder_id}")
                 
-            logger.info(f"Carpeta {folder_id} registrada en carpetas.csv como ocr_generado")
-            
         except Exception as csv_err:
             logger.error(f"Error al actualizar carpetas.csv: {str(csv_err)}")
             import traceback
