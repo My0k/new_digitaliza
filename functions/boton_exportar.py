@@ -181,6 +181,7 @@ def contar_imagenes_blancas_en_carpeta(carpeta_id):
         
         # Si la carpeta no existe, devolver (0, 0)
         if not os.path.exists(carpeta_path):
+            print(f"   Carpeta {carpeta_id} no encontrada en el sistema de archivos")
             return (0, 0)
         
         # Obtener archivos de imagen
@@ -189,18 +190,31 @@ def contar_imagenes_blancas_en_carpeta(carpeta_id):
         
         total_imagenes = len(imagenes)
         
+        # Si no hay imágenes, reportar y retornar rápido
+        if total_imagenes == 0:
+            print(f"   Carpeta {carpeta_id}: No contiene imágenes")
+            return (0, 0)
+            
+        print(f"   Analizando {total_imagenes} imágenes en carpeta {carpeta_id}...")
+        
         # Contar imágenes blancas
         imagenes_blancas = 0
-        for img_path in imagenes:
+        for i, img_path in enumerate(imagenes):
+            # Mostrar progreso cada 5 imágenes o en la última
+            if i % 5 == 0 or i == total_imagenes - 1:
+                print(f"      Progreso: {i+1}/{total_imagenes} imágenes ({((i+1)/total_imagenes)*100:.1f}%)")
+                
             if is_mostly_white(img_path):
                 imagenes_blancas += 1
         
         # Calcular imágenes sin las blancas
         imagenes_sin_blancas = total_imagenes - imagenes_blancas
         
+        print(f"   Resultado carpeta {carpeta_id}: {total_imagenes} imágenes totales, {imagenes_blancas} blancas, {imagenes_sin_blancas} útiles")
         return (imagenes_blancas, imagenes_sin_blancas)
     except Exception as e:
         logger.error(f"Error al contar imágenes blancas en carpeta {carpeta_id}: {str(e)}")
+        print(f"   ERROR al procesar carpeta {carpeta_id}: {str(e)}")
         return (0, 0)
 
 def contar_imagenes_en_carpeta(carpeta_id):
@@ -261,10 +275,13 @@ def generar_cuadratura():
         dict: Resultado de la operación con la ruta al archivo generado
     """
     try:
+        print("=== INICIANDO GENERACIÓN DE CUADRATURA ===")
+        print("Fase 1/4: Obteniendo documentos exportables...")
         # Obtener documentos exportables
         result = get_exportable_documents()
         
         if not result['success']:
+            print(f"Error: {result['error']}")
             return {
                 'success': False,
                 'error': result['error']
@@ -273,14 +290,18 @@ def generar_cuadratura():
         documentos = result['documents']
         
         if not documentos:
+            print("Error: No hay documentos disponibles para generar cuadratura")
             return {
                 'success': False,
                 'error': 'No hay documentos disponibles para generar cuadratura'
             }
         
+        print(f"Se encontraron {len(documentos)} documentos para incluir en la cuadratura")
+        
         # Crear un DataFrame con los documentos
         df = pd.DataFrame(documentos)
         
+        print("Fase 2/4: Preparando estructura del reporte...")
         # Determinar columnas disponibles (pueden variar según el CSV)
         columnas = ['codigo', 'carpeta']
         columnas_adicionales = ['nombre_iniciativa', 'caja', 'doc_presente', 'observacion']
@@ -294,7 +315,7 @@ def generar_cuadratura():
         
         # Agregar columnas de conteo de imágenes y páginas PDF
         logger.info("Agregando conteo de imágenes y páginas PDF a la cuadratura...")
-        print(f"Iniciando procesamiento de {len(df_reporte)} carpetas para la cuadratura...")
+        print(f"Fase 3/4: Procesando {len(df_reporte)} carpetas para análisis detallado...")
         
         # Inicializar nuevas columnas
         df_reporte['imagenes_carpeta'] = 0
@@ -304,28 +325,42 @@ def generar_cuadratura():
         
         # Procesar cada documento para obtener conteos
         for index, row in df_reporte.iterrows():
-            # Mostrar progreso cada 10 carpetas procesadas
-            if index > 0 and index % 10 == 0:
-                print(f"Procesadas {index} de {len(df_reporte)} carpetas ({(index/len(df_reporte))*100:.1f}%)...")
+            # Mostrar progreso cada 5 carpetas procesadas
+            if index % 5 == 0:
+                print(f"\nCarpeta {index+1}/{len(df_reporte)} - Progreso: {((index+1)/len(df_reporte))*100:.1f}%")
             
             # Contar imágenes en la carpeta
             carpeta_id = row['carpeta']
             if carpeta_id:
-                df_reporte.at[index, 'imagenes_carpeta'] = contar_imagenes_en_carpeta(carpeta_id)
+                print(f"Procesando carpeta: {carpeta_id} (Documento: {row['codigo']})")
+                total_imagenes = contar_imagenes_en_carpeta(carpeta_id)
+                df_reporte.at[index, 'imagenes_carpeta'] = total_imagenes
                 
                 # Contar imágenes blancas y no blancas
+                print(f"Analizando imágenes blancas en carpeta {carpeta_id}...")
                 imagenes_blancas, imagenes_sin_blancas = contar_imagenes_blancas_en_carpeta(carpeta_id)
                 df_reporte.at[index, 'imagenes_blancas'] = imagenes_blancas
                 df_reporte.at[index, 'imagenes_carpeta_sin_blancas'] = imagenes_sin_blancas
+                
+                # Mostrar resumen para esta carpeta
+                print(f"Resumen carpeta {carpeta_id}: {total_imagenes} imágenes totales, {imagenes_blancas} blancas, {imagenes_sin_blancas} útiles")
+            else:
+                print(f"Carpeta no especificada para documento {row['codigo']}")
             
             # Contar páginas del PDF
             pdf_path = df.at[index, 'pdf_path'] if 'pdf_path' in df.columns else None
             if pdf_path:
-                df_reporte.at[index, 'paginas_pdf'] = contar_paginas_pdf(pdf_path)
+                print(f"Contando páginas del PDF: {os.path.basename(pdf_path)}")
+                paginas = contar_paginas_pdf(pdf_path)
+                df_reporte.at[index, 'paginas_pdf'] = paginas
+                print(f"PDF tiene {paginas} páginas")
+            else:
+                print("No hay PDF asociado a este documento")
         
-        print(f"Procesamiento de carpetas completado. Total: {len(df_reporte)} carpetas analizadas.")
+        print(f"\nProcesamiento de carpetas completado. Total: {len(df_reporte)} carpetas analizadas.")
         
         # Renombrar columnas para el reporte final
+        print("Preparando formato final del reporte...")
         df_reporte.columns = [col.upper().replace('_', ' ') for col in df_reporte.columns]
         
         # Agregar columna de fecha de exportación
@@ -340,7 +375,7 @@ def generar_cuadratura():
         reporte_path = os.path.join(reportes_dir, reporte_filename)
         
         # Guardar DataFrame en Excel
-        print(f"Generando archivo Excel de cuadratura...")
+        print(f"Fase 4/4: Generando archivo Excel de cuadratura: {reporte_filename}")
         writer = pd.ExcelWriter(reporte_path, engine='openpyxl')
         df_reporte.to_excel(writer, index=False, sheet_name='Cuadratura')
         
@@ -353,7 +388,10 @@ def generar_cuadratura():
         writer.close()
         
         logger.info(f"Cuadratura generada: {reporte_path}")
-        print(f"Cuadratura completada y guardada en: {reporte_path}")
+        print(f"\n=== CUADRATURA COMPLETADA EXITOSAMENTE ===")
+        print(f"Archivo generado: {reporte_path}")
+        print(f"Documentos incluidos: {len(documentos)}")
+        print(f"Tamaño del archivo: {os.path.getsize(reporte_path)/1024:.1f} KB")
         
         return {
             'success': True,
@@ -366,7 +404,11 @@ def generar_cuadratura():
         error_msg = f"Error al generar cuadratura: {str(e)}"
         logger.error(error_msg)
         import traceback
-        logger.error(traceback.format_exc())
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
+        print(f"\n=== ERROR EN GENERACIÓN DE CUADRATURA ===")
+        print(error_msg)
+        print(error_trace)
         return {
             'success': False,
             'error': error_msg
