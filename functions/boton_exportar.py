@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 import glob
 from PyPDF2 import PdfReader
+from PIL import Image
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -125,6 +126,83 @@ def get_exportable_documents():
             'documents': []
         }
 
+def is_mostly_white(image_path, threshold=99.6):
+    """
+    Determina si una imagen es principalmente blanca.
+    
+    Args:
+        image_path (str): Ruta a la imagen a analizar
+        threshold (float): Porcentaje de píxeles blancos para considerar una imagen como blanca (0-100)
+        
+    Returns:
+        bool: True si la imagen es principalmente blanca, False en caso contrario
+    """
+    try:
+        with Image.open(image_path) as img:
+            # Convertir a escala de grises para simplificar el análisis
+            img_gray = img.convert('L')
+            
+            # Obtener histograma (distribución de niveles de gris)
+            hist = img_gray.histogram()
+            
+            # Calcular total de píxeles
+            total_pixels = img.width * img.height
+            
+            # Contar píxeles muy claros (valores cercanos a 255)
+            # Consideramos los valores de 240-255 como "casi blancos"
+            white_pixels = sum(hist[240:])
+            
+            # Calcular porcentaje de píxeles blancos
+            white_percentage = (white_pixels / total_pixels) * 100
+            
+            # Verificar si excede el umbral
+            is_white = white_percentage >= threshold
+            
+            return is_white
+            
+    except Exception as e:
+        logger.error(f"Error al analizar si la imagen {image_path} es blanca: {str(e)}")
+        # En caso de error, asumimos que no es blanca para procesarla
+        return False
+
+def contar_imagenes_blancas_en_carpeta(carpeta_id):
+    """
+    Cuenta cuántas imágenes blancas hay en una carpeta específica
+    
+    Args:
+        carpeta_id: Identificador de la carpeta
+        
+    Returns:
+        tuple: (Número de imágenes blancas, Número de imágenes sin las blancas)
+    """
+    try:
+        # Ruta a la carpeta
+        carpeta_path = os.path.join('proceso', 'carpetas', carpeta_id)
+        
+        # Si la carpeta no existe, devolver (0, 0)
+        if not os.path.exists(carpeta_path):
+            return (0, 0)
+        
+        # Obtener archivos de imagen
+        imagenes = glob.glob(os.path.join(carpeta_path, '*.jpg')) + \
+                  glob.glob(os.path.join(carpeta_path, '*.jpeg'))
+        
+        total_imagenes = len(imagenes)
+        
+        # Contar imágenes blancas
+        imagenes_blancas = 0
+        for img_path in imagenes:
+            if is_mostly_white(img_path):
+                imagenes_blancas += 1
+        
+        # Calcular imágenes sin las blancas
+        imagenes_sin_blancas = total_imagenes - imagenes_blancas
+        
+        return (imagenes_blancas, imagenes_sin_blancas)
+    except Exception as e:
+        logger.error(f"Error al contar imágenes blancas en carpeta {carpeta_id}: {str(e)}")
+        return (0, 0)
+
 def contar_imagenes_en_carpeta(carpeta_id):
     """
     Cuenta cuántas imágenes hay en una carpeta específica
@@ -220,6 +298,8 @@ def generar_cuadratura():
         # Inicializar nuevas columnas
         df_reporte['imagenes_carpeta'] = 0
         df_reporte['paginas_pdf'] = 0
+        df_reporte['imagenes_blancas'] = 0
+        df_reporte['imagenes_carpeta_sin_blancas'] = 0
         
         # Procesar cada documento para obtener conteos
         for index, row in df_reporte.iterrows():
@@ -227,6 +307,11 @@ def generar_cuadratura():
             carpeta_id = row['carpeta']
             if carpeta_id:
                 df_reporte.at[index, 'imagenes_carpeta'] = contar_imagenes_en_carpeta(carpeta_id)
+                
+                # Contar imágenes blancas y no blancas
+                imagenes_blancas, imagenes_sin_blancas = contar_imagenes_blancas_en_carpeta(carpeta_id)
+                df_reporte.at[index, 'imagenes_blancas'] = imagenes_blancas
+                df_reporte.at[index, 'imagenes_carpeta_sin_blancas'] = imagenes_sin_blancas
             
             # Contar páginas del PDF
             pdf_path = df.at[index, 'pdf_path'] if 'pdf_path' in df.columns else None
