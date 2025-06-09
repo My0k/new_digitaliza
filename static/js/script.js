@@ -14,6 +14,11 @@ document.addEventListener('DOMContentLoaded', function() {
         exportarAGesdoc();
     });
     
+    // Botón de invertir orden
+    document.getElementById('toggleOrderBtn').addEventListener('click', function() {
+        toggleImagesOrder();
+    });
+    
     // Botones de rotación
     document.querySelectorAll('.rotate-btn').forEach(button => {
         button.addEventListener('click', function() {
@@ -61,6 +66,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Inicializar imágenes y cargar eventos iniciales
     refreshImages();
+    
+    // Actualizar la apariencia del botón de invertir orden según el estado guardado
+    updateToggleOrderButton();
 });
 
 // Variable para almacenar la última modificación conocida
@@ -69,8 +77,14 @@ let lastKnownModification = 0;
 // Variable global para almacenar el orden de las imágenes
 let imageOrder = [];
 
+// Variable global para el estado de inversión de orden
+let orderInverted = false;
+
 // Función para iniciar el monitoreo de la carpeta
 function startFolderMonitoring() {
+    // Cargar el estado de inversión de orden desde localStorage
+    orderInverted = localStorage.getItem('orderInverted') === 'true';
+    
     // Verificar cambios cada 3 segundos
     setInterval(checkForUpdates, 3000);
 }
@@ -166,10 +180,16 @@ function refreshImages() {
                 }
             }
 
+            // Aplicar inversión de orden si está activada
+            let displayData = orderedData;
+            if (orderInverted) {
+                displayData = [...orderedData].reverse();
+            }
+
             const documentContainer = document.getElementById('documentContainer');
             documentContainer.innerHTML = ''; // Limpiar contenedor
             
-            orderedData.forEach((image, index) => {
+            displayData.forEach((image, index) => {
                 if (!image.data) {
                     // Si no hay imagen, mostrar mensaje
                     const noImageDiv = document.createElement('div');
@@ -206,7 +226,7 @@ function refreshImages() {
                                     <button class="btn btn-sm btn-secondary move-up-btn" data-filename="${image.name}" title="Mover arriba" ${index === 0 ? 'disabled' : ''}>
                                         <i class="fas fa-arrow-up"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo" ${index === orderedData.length - 1 ? 'disabled' : ''}>
+                                    <button class="btn btn-sm btn-secondary move-down-btn" data-filename="${image.name}" title="Mover abajo" ${index === displayData.length - 1 ? 'disabled' : ''}>
                                         <i class="fas fa-arrow-down"></i>
                                     </button>
                                     <button class="btn btn-sm btn-primary move-to-first-btn" data-filename="${image.name}" title="Mover a primera posición" ${index === 0 ? 'disabled' : ''}>
@@ -238,6 +258,9 @@ function refreshImages() {
             
             // Añadir eventos a los botones después de crear los elementos
             addButtonEvents();
+            
+            // Actualizar la apariencia del botón de inversión de orden
+            updateToggleOrderButton();
         })
         .catch(error => console.error('Error al actualizar imágenes:', error));
 }
@@ -328,11 +351,14 @@ function moveImage(filename, direction) {
     const index = imageOrder.indexOf(filename);
     if (index === -1) return;
     
-    if (direction === 'up' && index > 0) {
+    // Si el orden está invertido, invertir la dirección de movimiento
+    const actualDirection = orderInverted ? (direction === 'up' ? 'down' : 'up') : direction;
+    
+    if (actualDirection === 'up' && index > 0) {
         // Intercambiar con el elemento anterior
         [imageOrder[index], imageOrder[index - 1]] = [imageOrder[index - 1], imageOrder[index]];
         refreshImages();
-    } else if (direction === 'down' && index < imageOrder.length - 1) {
+    } else if (actualDirection === 'down' && index < imageOrder.length - 1) {
         // Intercambiar con el elemento siguiente
         [imageOrder[index], imageOrder[index + 1]] = [imageOrder[index + 1], imageOrder[index]];
         refreshImages();
@@ -349,8 +375,12 @@ function moveImageToFirst(filename) {
     
     // Quitar la imagen de su posición actual
     imageOrder.splice(currentIndex, 1);
-    // Añadirla al principio
-    imageOrder.unshift(filename);
+    // Añadirla al principio o al final según el estado de inversión
+    if (orderInverted) {
+        imageOrder.push(filename); // Si está invertido, añadir al final
+    } else {
+        imageOrder.unshift(filename); // Si no está invertido, añadir al principio
+    }
     
     // Guardar el nuevo orden en localStorage
     localStorage.setItem('imageOrder', JSON.stringify(imageOrder));
@@ -584,7 +614,7 @@ function finalizarProcesado() {
         rutNumber: rutNumber,
         rutDV: rutDV,
         folio: folio,
-        selectedImages: imageOrder // Enviar el orden actual de las imágenes
+        selectedImages: orderInverted ? [...imageOrder].reverse() : imageOrder // Enviar el orden actual de las imágenes
     };
     
     // Llamar al endpoint para generar el PDF
@@ -938,4 +968,74 @@ function exportarAGesdoc() {
 function initializeZoom() {
     // Implementar funcionalidad de zoom si es necesario
     // O dejar vacía si no se necesita esta funcionalidad
+}
+
+// Función para invertir el orden de las imágenes
+function toggleImagesOrder() {
+    // Cambiar el estado de inversión
+    orderInverted = !orderInverted;
+    
+    // Guardar el estado en localStorage
+    localStorage.setItem('orderInverted', orderInverted);
+    
+    // Actualizar la vista
+    refreshImages();
+    
+    // Actualizar la apariencia del botón
+    updateToggleOrderButton();
+    
+    // Mostrar notificación
+    const message = orderInverted ? 'Orden invertido activado' : 'Orden invertido desactivado';
+    showNotification(message, 'success');
+}
+
+// Función para actualizar la apariencia del botón de invertir orden
+function updateToggleOrderButton() {
+    const toggleOrderBtn = document.getElementById('toggleOrderBtn');
+    
+    if (orderInverted) {
+        toggleOrderBtn.innerHTML = '<i class="fas fa-exchange-alt me-1"></i> Orden Invertido: ON';
+        toggleOrderBtn.classList.remove('btn-warning');
+        toggleOrderBtn.classList.add('btn-success');
+    } else {
+        toggleOrderBtn.innerHTML = '<i class="fas fa-exchange-alt me-1"></i> Orden Invertido: OFF';
+        toggleOrderBtn.classList.remove('btn-success');
+        toggleOrderBtn.classList.add('btn-warning');
+    }
+}
+
+// Función para mostrar notificaciones
+function showNotification(message, type = 'info') {
+    // Verificar si ya existe un contenedor de notificaciones
+    let notifContainer = document.getElementById('notificationContainer');
+    
+    if (!notifContainer) {
+        // Crear el contenedor si no existe
+        notifContainer = document.createElement('div');
+        notifContainer.id = 'notificationContainer';
+        notifContainer.style.position = 'fixed';
+        notifContainer.style.top = '20px';
+        notifContainer.style.right = '20px';
+        notifContainer.style.zIndex = '9999';
+        document.body.appendChild(notifContainer);
+    }
+    
+    // Crear la notificación
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type} alert-dismissible fade show`;
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    // Añadir la notificación al contenedor
+    notifContainer.appendChild(notification);
+    
+    // Eliminar la notificación después de 3 segundos
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+            notification.remove();
+        }, 300);
+    }, 3000);
 }
