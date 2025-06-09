@@ -294,6 +294,7 @@ def generar_cuadratura():
         
         # Agregar columnas de conteo de imágenes y páginas PDF
         logger.info("Agregando conteo de imágenes y páginas PDF a la cuadratura...")
+        print(f"Iniciando procesamiento de {len(df_reporte)} carpetas para la cuadratura...")
         
         # Inicializar nuevas columnas
         df_reporte['imagenes_carpeta'] = 0
@@ -303,6 +304,10 @@ def generar_cuadratura():
         
         # Procesar cada documento para obtener conteos
         for index, row in df_reporte.iterrows():
+            # Mostrar progreso cada 10 carpetas procesadas
+            if index > 0 and index % 10 == 0:
+                print(f"Procesadas {index} de {len(df_reporte)} carpetas ({(index/len(df_reporte))*100:.1f}%)...")
+            
             # Contar imágenes en la carpeta
             carpeta_id = row['carpeta']
             if carpeta_id:
@@ -317,6 +322,8 @@ def generar_cuadratura():
             pdf_path = df.at[index, 'pdf_path'] if 'pdf_path' in df.columns else None
             if pdf_path:
                 df_reporte.at[index, 'paginas_pdf'] = contar_paginas_pdf(pdf_path)
+        
+        print(f"Procesamiento de carpetas completado. Total: {len(df_reporte)} carpetas analizadas.")
         
         # Renombrar columnas para el reporte final
         df_reporte.columns = [col.upper().replace('_', ' ') for col in df_reporte.columns]
@@ -333,6 +340,7 @@ def generar_cuadratura():
         reporte_path = os.path.join(reportes_dir, reporte_filename)
         
         # Guardar DataFrame en Excel
+        print(f"Generando archivo Excel de cuadratura...")
         writer = pd.ExcelWriter(reporte_path, engine='openpyxl')
         df_reporte.to_excel(writer, index=False, sheet_name='Cuadratura')
         
@@ -345,6 +353,7 @@ def generar_cuadratura():
         writer.close()
         
         logger.info(f"Cuadratura generada: {reporte_path}")
+        print(f"Cuadratura completada y guardada en: {reporte_path}")
         
         return {
             'success': True,
@@ -354,12 +363,13 @@ def generar_cuadratura():
         }
     
     except Exception as e:
-        logger.error(f"Error al generar cuadratura: {str(e)}")
+        error_msg = f"Error al generar cuadratura: {str(e)}"
+        logger.error(error_msg)
         import traceback
         logger.error(traceback.format_exc())
         return {
             'success': False,
-            'error': f"Error al generar cuadratura: {str(e)}"
+            'error': error_msg
         }
 
 def exportar_documentos():
