@@ -202,11 +202,11 @@ def exportar_a_gesdoc(usuario="Sistema"):
                 if os.path.exists(pdf_path):
                     # El PDF ya existe, enviar directamente a Gesdoc
                     logger.info(f"PDF encontrado: {pdf_path}")
-                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario)
+                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario, None)
                 else:
                     # Necesitamos generar el PDF primero
                     logger.info(f"PDF no encontrado: {pdf_path}, generando...")
-                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario)
+                    resultado = procesar_y_subir_documento(doc['rut'], doc['folio'], usuario, None)
                 
                 # Guardar el resultado
                 resultado['documento'] = doc['nombre_documento']

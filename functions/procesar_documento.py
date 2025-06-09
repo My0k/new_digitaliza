@@ -39,7 +39,7 @@ def sanitize_rut(rut):
         clean_rut = f"{clean_rut[:-1]}-{clean_rut[-1]}"
     return clean_rut
 
-def generar_pdf_desde_imagenes(rut, folio, input_folder='input'):
+def generar_pdf_desde_imagenes(rut, folio, input_folder='input', orden_imagenes=None):
     """Genera un PDF con todas las imágenes de la carpeta input"""
     logger.info(f"Generando PDF para RUT: {rut}, Folio: {folio}")
     
@@ -61,13 +61,37 @@ def generar_pdf_desde_imagenes(rut, folio, input_folder='input'):
         logger.warning(f"No hay imágenes en la carpeta {input_folder} para generar el PDF")
         return None
     
-    # Ordenar las imágenes por nombre (que contiene timestamp)
-    image_files.sort()
+    # Si se proporciona un orden específico, ordenar las imágenes según ese orden
+    if orden_imagenes and len(orden_imagenes) > 0:
+        logger.info(f"Usando orden de imágenes proporcionado por el frontend: {orden_imagenes}")
+        
+        # Crear un diccionario con las rutas de las imágenes para búsqueda más fácil
+        image_dict = {}
+        for img_path in image_files:
+            image_dict[os.path.basename(img_path)] = img_path
+            
+        # Ordenar según el orden proporcionado
+        ordered_images = []
+        for img_name in orden_imagenes:
+            if img_name in image_dict:
+                ordered_images.append(image_dict[img_name])
+                
+        # Añadir cualquier imagen que no esté en el orden proporcionado
+        for img_path in image_files:
+            img_name = os.path.basename(img_path)
+            if img_name not in orden_imagenes:
+                ordered_images.append(img_path)
+                
+        # Usar las imágenes ordenadas
+        image_files = ordered_images
+        logger.info(f"Orden final de imágenes para PDF: {[os.path.basename(img) for img in image_files]}")
+    else:
+        # Si no hay orden específico, usar el orden antiguo (por nombre y luego invertido)
+        logger.info("No se proporcionó orden específico. Usando orden por nombre de archivo (invertido)")
+        image_files.sort()
+        image_files.reverse()
     
-    # Invertir el orden de las imágenes (la última será la primera en el PDF)
-    image_files.reverse()
-    
-    logger.info(f"Encontradas {len(image_files)} imágenes para incluir en el PDF (en orden invertido)")
+    logger.info(f"Encontradas {len(image_files)} imágenes para incluir en el PDF")
     
     # Crear el PDF con las imágenes
     try:
@@ -309,7 +333,7 @@ def buscar_por_folio(folio):
         logger.error(traceback.format_exc())
         return None
 
-def procesar_y_subir_documento(rut, folio, usuario):
+def procesar_y_subir_documento(rut, folio, usuario, orden_imagenes=None):
     """
     Procesa un documento, genera un PDF y lo sube a Gesdoc.
     
@@ -317,6 +341,7 @@ def procesar_y_subir_documento(rut, folio, usuario):
         rut (str): RUT con guion
         folio (str): Número de folio
         usuario (str): Nombre de usuario que está realizando la operación
+        orden_imagenes (list, optional): Lista con el orden de las imágenes (nombres de archivo)
     
     Returns:
         dict: Resultado de la operación
@@ -324,7 +349,7 @@ def procesar_y_subir_documento(rut, folio, usuario):
     logger.info(f"Iniciando procesamiento para RUT: {rut}, Folio: {folio}, Usuario: {usuario}")
     
     # 1. Generar el PDF con las imágenes de input
-    pdf_path = generar_pdf_desde_imagenes(rut, folio)
+    pdf_path = generar_pdf_desde_imagenes(rut, folio, orden_imagenes=orden_imagenes)
     if not pdf_path:
         return {
             "status": "error",

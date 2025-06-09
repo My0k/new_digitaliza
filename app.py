@@ -571,6 +571,7 @@ def generar_pdf():
         usuario = session.get('username', 'Sistema')
         
         logger.info(f"Iniciando generación de PDF para RUT: {rut_completo}, Folio: {folio}, Usuario: {usuario}")
+        logger.info(f"Orden de imágenes proporcionado: {selected_images}")
         
         # Inicializar resultado_api como None
         resultado_api = None
@@ -600,7 +601,7 @@ def generar_pdf():
             logger.info(f"Folio {folio} actualizado exitosamente desde la API: {resultado_api.get('message')}")
         
         # 1. Usar la función procesar_y_subir_documento de procesar_documento.py
-        resultado = procesar_y_subir_documento(rut_completo, folio, usuario)
+        resultado = procesar_y_subir_documento(rut_completo, folio, usuario, selected_images)
         
         if resultado.get('status') != 'success':
             logger.error(f"Error al procesar y subir documento: {resultado.get('message')}")
