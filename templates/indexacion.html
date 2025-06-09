@@ -24,6 +24,12 @@
                     <p>Seleccione una carpeta para ver sus imágenes</p>
                 </div>
             </div>
+            <!-- Botón para mostrar todas las imágenes -->
+            <div id="showMoreImagesContainer" class="text-center mt-3" style="display: none;">
+                <button id="showAllImagesBtn" class="btn btn-primary">
+                    <i class="fas fa-images me-1"></i> Mostrar todas las imágenes
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -55,6 +61,11 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         setActiveMode('indexation');
+        
+        // Variables para controlar la visualización de imágenes
+        let allImages = [];
+        let isShowingAllImages = false;
+        const imagesPerPage = 12;
         
         // Obtener el ID de carpeta de la URL si está presente
         const pathSegments = window.location.pathname.split('/');
@@ -100,6 +111,37 @@
         document.getElementById('autoIndexBtn').addEventListener('click', function() {
             autoIndexar();
         });
+        
+        // Configurar el botón de Mostrar todas las imágenes
+        document.getElementById('showAllImagesBtn').addEventListener('click', function() {
+            showAllImages();
+        });
+        
+        // Función para mostrar todas las imágenes
+        function showAllImages() {
+            if (!allImages || allImages.length <= imagesPerPage) return;
+            
+            // Mostrar indicador de carga
+            const button = document.getElementById('showAllImagesBtn');
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Cargando...';
+            
+            // Simular un pequeño retraso para mostrar el loading
+            setTimeout(() => {
+                // Mostrar todas las imágenes
+                updateFolderImageGrid(allImages, true);
+                
+                // Ocultar el botón de mostrar más
+                document.getElementById('showMoreImagesContainer').style.display = 'none';
+                
+                // Marcar que estamos mostrando todas las imágenes
+                isShowingAllImages = true;
+                
+                // Restaurar el botón
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
+            }, 500);
+        }
     });
     
     // Función para iniciar el proceso de auto-indexación
@@ -355,20 +397,27 @@
                 // Mostrar mensaje apropiado si no hay carpetas
                 if (data.folders && data.folders.length > 0) {
                     if (data.current_folder) {
-                        updateFolderImageGrid(data.images);
+                        // Guardar todas las imágenes en la variable global
+                        window.allImages = data.images;
+                        
+                        // Mostrar solo las primeras imágenes
+                        updateFolderImageGrid(data.images, false);
                     } else {
                         document.getElementById('folderImageGrid').innerHTML = 
                             '<div class="col-12"><div class="alert alert-info">Seleccione una carpeta para ver sus imágenes</div></div>';
+                        document.getElementById('showMoreImagesContainer').style.display = 'none';
                     }
                 } else {
                     document.getElementById('folderImageGrid').innerHTML = 
                         '<div class="col-12"><div class="alert alert-info">No hay carpetas pendientes por indexar.</div></div>';
+                    document.getElementById('showMoreImagesContainer').style.display = 'none';
                 }
             })
             .catch(error => {
                 console.error('Error al cargar carpetas:', error);
                 document.getElementById('folderImageGrid').innerHTML = 
                     '<div class="col-12"><div class="alert alert-danger">Error al cargar carpetas. Por favor, intente nuevamente.</div></div>';
+                document.getElementById('showMoreImagesContainer').style.display = 'none';
                 
                 // Restaurar selector de carpetas
                 if (folderSelect) {
@@ -376,6 +425,85 @@
                     folderSelect.disabled = false;
                 }
             });
+    }
+    
+    // Función actualizada para mostrar imágenes en el grid
+    function updateFolderImageGrid(images, showAll = false) {
+        const imageGrid = document.getElementById('folderImageGrid');
+        const showMoreContainer = document.getElementById('showMoreImagesContainer');
+        
+        if (!imageGrid) return;
+        
+        imageGrid.innerHTML = '';
+        
+        if (!images || images.length === 0) {
+            imageGrid.innerHTML = '<div class="col-12 text-center"><p>No hay imágenes en esta carpeta</p></div>';
+            showMoreContainer.style.display = 'none';
+            return;
+        }
+        
+        // Determinar cuántas imágenes mostrar
+        const imagesPerPage = 12;
+        const displayImages = showAll ? images : images.slice(0, imagesPerPage);
+        
+        // Mostrar las imágenes
+        displayImages.forEach(image => {
+            const col = document.createElement('div');
+            col.className = 'col-md-4 mb-3';
+            col.innerHTML = `
+                <div class="card h-100">
+                    <img src="${image.data}" class="card-img-top indexing-image" alt="${image.name}" 
+                         loading="lazy" data-original-path="${image.path || ''}" data-full-size-url="${image.original_url || image.data}">
+                    <div class="card-body">
+                        <h6 class="card-title">${image.name}</h6>
+                        <p class="card-text small">${image.modified}</p>
+                    </div>
+                </div>
+            `;
+            imageGrid.appendChild(col);
+        });
+        
+        // Configurar las imágenes para que se abran en una nueva pestaña (si existe esta función)
+        if (typeof setupImageOpening === 'function') {
+            setupImageOpening();
+        }
+        
+        // Mostrar u ocultar el botón "Mostrar todas" según corresponda
+        if (!showAll && images.length > imagesPerPage) {
+            showMoreContainer.style.display = 'block';
+        } else {
+            showMoreContainer.style.display = 'none';
+        }
+    }
+    
+    // Función para actualizar el selector de carpetas
+    function updateFolderSelect(folders, currentFolder) {
+        const folderSelect = document.getElementById('folderSelect');
+        if (!folderSelect) return;
+        
+        folderSelect.innerHTML = '';
+        folderSelect.disabled = false;
+        
+        if (!folders || folders.length === 0) {
+            folderSelect.innerHTML = '<option value="">No hay carpetas disponibles</option>';
+            folderSelect.disabled = true;
+            return;
+        }
+        
+        // Opción por defecto
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Seleccione una carpeta';
+        folderSelect.appendChild(defaultOption);
+        
+        // Añadir cada carpeta como una opción
+        folders.forEach(folder => {
+            const option = document.createElement('option');
+            option.value = folder;
+            option.textContent = `Carpeta ${folder}`;
+            option.selected = folder === currentFolder;
+            folderSelect.appendChild(option);
+        });
     }
 </script>
 {% endblock %} 
