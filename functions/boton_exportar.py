@@ -3,6 +3,8 @@ import csv
 import logging
 import pandas as pd
 from datetime import datetime
+import glob
+from PyPDF2 import PdfReader
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -123,6 +125,56 @@ def get_exportable_documents():
             'documents': []
         }
 
+def contar_imagenes_en_carpeta(carpeta_id):
+    """
+    Cuenta cuántas imágenes hay en una carpeta específica
+    
+    Args:
+        carpeta_id: Identificador de la carpeta
+        
+    Returns:
+        int: Número de imágenes encontradas
+    """
+    try:
+        # Ruta a la carpeta
+        carpeta_path = os.path.join('proceso', 'carpetas', carpeta_id)
+        
+        # Si la carpeta no existe, devolver 0
+        if not os.path.exists(carpeta_path):
+            return 0
+        
+        # Contar archivos de imagen
+        imagenes = glob.glob(os.path.join(carpeta_path, '*.jpg')) + \
+                  glob.glob(os.path.join(carpeta_path, '*.jpeg'))
+        
+        return len(imagenes)
+    except Exception as e:
+        logger.error(f"Error al contar imágenes en carpeta {carpeta_id}: {str(e)}")
+        return 0
+
+def contar_paginas_pdf(pdf_path):
+    """
+    Cuenta el número de páginas en un archivo PDF
+    
+    Args:
+        pdf_path: Ruta al archivo PDF
+        
+    Returns:
+        int: Número de páginas del PDF
+    """
+    try:
+        # Si el archivo no existe, devolver 0
+        if not os.path.exists(pdf_path):
+            return 0
+        
+        # Abrir el PDF y contar páginas
+        with open(pdf_path, 'rb') as file:
+            pdf = PdfReader(file)
+            return len(pdf.pages)
+    except Exception as e:
+        logger.error(f"Error al contar páginas del PDF {pdf_path}: {str(e)}")
+        return 0
+
 def generar_cuadratura():
     """
     Genera un archivo Excel con la cuadratura de documentos exportables.
@@ -161,7 +213,28 @@ def generar_cuadratura():
         
         # Reordenar y renombrar columnas para el reporte
         df_reporte = df[columnas].copy()
-        df_reporte.columns = [col.upper().replace('_', ' ') for col in columnas]
+        
+        # Agregar columnas de conteo de imágenes y páginas PDF
+        logger.info("Agregando conteo de imágenes y páginas PDF a la cuadratura...")
+        
+        # Inicializar nuevas columnas
+        df_reporte['imagenes_carpeta'] = 0
+        df_reporte['paginas_pdf'] = 0
+        
+        # Procesar cada documento para obtener conteos
+        for index, row in df_reporte.iterrows():
+            # Contar imágenes en la carpeta
+            carpeta_id = row['carpeta']
+            if carpeta_id:
+                df_reporte.at[index, 'imagenes_carpeta'] = contar_imagenes_en_carpeta(carpeta_id)
+            
+            # Contar páginas del PDF
+            pdf_path = df.at[index, 'pdf_path'] if 'pdf_path' in df.columns else None
+            if pdf_path:
+                df_reporte.at[index, 'paginas_pdf'] = contar_paginas_pdf(pdf_path)
+        
+        # Renombrar columnas para el reporte final
+        df_reporte.columns = [col.upper().replace('_', ' ') for col in df_reporte.columns]
         
         # Agregar columna de fecha de exportación
         df_reporte['FECHA EXPORTACION'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
