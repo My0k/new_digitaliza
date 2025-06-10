@@ -56,7 +56,16 @@ def get_latest_images(folder='input', count=None):
     """Obtiene las rutas de las imágenes en la carpeta especificada.
     Si count es None, devuelve todas las imágenes disponibles."""
     try:
-        files = glob.glob(os.path.join(folder, '*.jpg')) + glob.glob(os.path.join(folder, '*.jpeg'))
+        files = []
+        for file_pattern in ['*.jpg', '*.jpeg']:
+            for file_path in glob.glob(os.path.join(folder, file_pattern)):
+                # Verificar el tamaño del archivo
+                file_size = os.path.getsize(file_path)
+                if file_size > 0:  # Ignorar archivos de menos de 1 byte
+                    files.append(file_path)
+                else:
+                    logger.warning(f"Ignorando imagen con tamaño 0 bytes: {file_path}")
+        
         # Ordenar archivos por fecha de modificación (más reciente primero)
         files.sort(key=os.path.getmtime, reverse=True)
         return files[:count] if count is not None else files
@@ -215,6 +224,9 @@ def switch_user():
 @login_required
 def index():
     """Página principal que muestra todas las imágenes disponibles."""
+    # Limpiar imágenes inválidas al cargar la página
+    clean_invalid_images(app.config['UPLOAD_FOLDER'])
+    
     latest_images = get_latest_images(app.config['UPLOAD_FOLDER'])
     
     # Preparar datos de imágenes
@@ -266,6 +278,9 @@ def upload_file():
 @login_required
 def refresh_images():
     """Endpoint para actualizar las imágenes sin recargar la página completa."""
+    # Limpiar imágenes inválidas antes de refrescar
+    clean_invalid_images(app.config['UPLOAD_FOLDER'])
+    
     latest_images = get_latest_images(folder=app.config['UPLOAD_FOLDER'])
     images_data = [get_image_data(img) for img in latest_images]
     
@@ -549,11 +564,51 @@ def buscar_folio(folio):
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': error_msg}), 500
 
+def clean_invalid_images(folder='input'):
+    """Elimina imágenes inválidas o de tamaño 0 bytes del directorio especificado."""
+    try:
+        cleaned_count = 0
+        for file in os.listdir(folder):
+            if file.lower().endswith(('.jpg', '.jpeg')):
+                file_path = os.path.join(folder, file)
+                
+                # Verificar tamaño
+                if os.path.getsize(file_path) <= 0:
+                    os.remove(file_path)
+                    logger.info(f"Imagen eliminada por tamaño 0: {file_path}")
+                    cleaned_count += 1
+                    continue
+                
+                # Verificar que sea una imagen válida
+                try:
+                    from PIL import Image
+                    with Image.open(file_path) as img:
+                        # Solo verificar que se pueda abrir
+                        pass
+                except Exception as e:
+                    logger.warning(f"Eliminando imagen inválida {file_path}: {str(e)}")
+                    try:
+                        os.remove(file_path)
+                        cleaned_count += 1
+                    except Exception as del_err:
+                        logger.error(f"Error al eliminar imagen: {del_err}")
+        
+        if cleaned_count > 0:
+            logger.info(f"Se eliminaron {cleaned_count} imágenes inválidas")
+        
+        return cleaned_count
+    except Exception as e:
+        logger.error(f"Error al limpiar imágenes inválidas: {str(e)}")
+        return 0
+
 @app.route('/generar_pdf', methods=['POST'])
 @login_required
 def generar_pdf():
     """Genera un PDF con las imágenes seleccionadas y actualiza el CSV."""
     try:
+        # Limpiar imágenes inválidas antes de procesar
+        clean_invalid_images(app.config['UPLOAD_FOLDER'])
+        
         # Obtener datos del request
         data = request.json
         rut_number = data.get('rutNumber', '')

@@ -39,7 +39,7 @@ def sanitize_rut(rut):
         clean_rut = f"{clean_rut[:-1]}-{clean_rut[-1]}"
     return clean_rut
 
-def generar_pdf_desde_imagenes(rut, folio, input_folder='input', orden_imagenes=None):
+def generar_pdf_desde_imagenes(rut, folio, input_folder='input', orden_imagenes=None, delete_after_processing=True):
     """Genera un PDF con todas las imágenes de la carpeta input"""
     logger.info(f"Generando PDF para RUT: {rut}, Folio: {folio}")
     
@@ -55,10 +55,33 @@ def generar_pdf_desde_imagenes(rut, folio, input_folder='input', orden_imagenes=
     image_files = []
     for file in os.listdir(input_folder):
         if file.lower().endswith(('.jpg', '.jpeg')):
-            image_files.append(os.path.join(input_folder, file))
+            file_path = os.path.join(input_folder, file)
+            # Verificar que el archivo tenga un tamaño mayor a 0 bytes
+            if os.path.getsize(file_path) > 0:
+                # Verificar que sea una imagen válida
+                try:
+                    with Image.open(file_path) as img:
+                        # Solo verificar que se pueda abrir
+                        image_files.append(file_path)
+                except Exception as e:
+                    logger.warning(f"Ignorando imagen inválida {file_path}: {str(e)}")
+                    # Eliminar la imagen inválida
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Imagen inválida eliminada: {file_path}")
+                    except Exception as del_err:
+                        logger.error(f"Error al eliminar imagen inválida: {del_err}")
+            else:
+                logger.warning(f"Ignorando imagen con tamaño 0 bytes: {file_path}")
+                # Eliminar la imagen de 0 bytes
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Imagen de 0 bytes eliminada: {file_path}")
+                except Exception as del_err:
+                    logger.error(f"Error al eliminar imagen de 0 bytes: {del_err}")
     
     if not image_files:
-        logger.warning(f"No hay imágenes en la carpeta {input_folder} para generar el PDF")
+        logger.warning(f"No hay imágenes válidas en la carpeta {input_folder} para generar el PDF")
         return None
     
     # Si se proporciona un orden específico, ordenar las imágenes según ese orden
@@ -101,27 +124,52 @@ def generar_pdf_desde_imagenes(rut, folio, input_folder='input', orden_imagenes=
         c = canvas.Canvas(pdf_path, pagesize=letter)
         
         # Añadir cada imagen como una página del PDF
+        images_processed = 0
         for img_path in image_files:
-            logger.info(f"Agregando imagen: {img_path}")
-            img = Image.open(img_path)
-            img_width, img_height = img.size
-            
-            # Ajustar tamaño para que quepa en la página
-            page_width, page_height = letter
-            ratio = min(page_width / img_width, page_height / img_height) * 0.9
-            new_width = img_width * ratio
-            new_height = img_height * ratio
-            
-            # Posicionar en el centro de la página
-            x = (page_width - new_width) / 2
-            y = (page_height - new_height) / 2
-            
-            c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
-            c.showPage()
+            try:
+                logger.info(f"Agregando imagen: {img_path}")
+                img = Image.open(img_path)
+                img_width, img_height = img.size
+                
+                # Ajustar tamaño para que quepa en la página
+                page_width, page_height = letter
+                ratio = min(page_width / img_width, page_height / img_height) * 0.9
+                new_width = img_width * ratio
+                new_height = img_height * ratio
+                
+                # Posicionar en el centro de la página
+                x = (page_width - new_width) / 2
+                y = (page_height - new_height) / 2
+                
+                c.drawImage(ImageReader(img), x, y, width=new_width, height=new_height)
+                c.showPage()
+                images_processed += 1
+            except Exception as e:
+                logger.error(f"Error al procesar imagen {img_path}: {e}")
+                # Eliminar la imagen problemática
+                try:
+                    os.remove(img_path)
+                    logger.info(f"Imagen problemática eliminada: {img_path}")
+                except Exception as del_err:
+                    logger.error(f"Error al eliminar imagen problemática: {del_err}")
+        
+        if images_processed == 0:
+            logger.error("No se pudo procesar ninguna imagen correctamente")
+            return None
         
         # Guardar el PDF
         c.save()
         logger.info(f"PDF generado correctamente: {pdf_path}")
+        
+        # Eliminar las imágenes procesadas si se solicita
+        if delete_after_processing:
+            for img_path in image_files:
+                try:
+                    if os.path.exists(img_path):
+                        os.remove(img_path)
+                        logger.info(f"Imagen eliminada después del procesamiento: {img_path}")
+                except Exception as e:
+                    logger.error(f"Error al eliminar imagen {img_path}: {e}")
         
         return pdf_path
     except Exception as e:
@@ -348,8 +396,39 @@ def procesar_y_subir_documento(rut, folio, usuario, orden_imagenes=None):
     """
     logger.info(f"Iniciando procesamiento para RUT: {rut}, Folio: {folio}, Usuario: {usuario}")
     
-    # 1. Generar el PDF con las imágenes de input
-    pdf_path = generar_pdf_desde_imagenes(rut, folio, orden_imagenes=orden_imagenes)
+    # Limpiar archivos de imagen inválidos o de tamaño 0 antes de procesar
+    input_folder = 'input'
+    cleaned_files = 0
+    
+    try:
+        for file in os.listdir(input_folder):
+            if file.lower().endswith(('.jpg', '.jpeg')):
+                file_path = os.path.join(input_folder, file)
+                
+                # Verificar tamaño
+                if os.path.getsize(file_path) <= 0:
+                    os.remove(file_path)
+                    logger.info(f"Archivo eliminado por tamaño 0: {file_path}")
+                    cleaned_files += 1
+                    continue
+                
+                # Verificar que sea una imagen válida
+                try:
+                    with Image.open(file_path) as img:
+                        # Solo verificar que se pueda abrir
+                        pass
+                except Exception as e:
+                    logger.warning(f"Eliminando imagen inválida {file_path}: {str(e)}")
+                    os.remove(file_path)
+                    cleaned_files += 1
+        
+        if cleaned_files > 0:
+            logger.info(f"Se eliminaron {cleaned_files} archivos inválidos antes de procesar")
+    except Exception as e:
+        logger.error(f"Error al limpiar archivos inválidos: {str(e)}")
+    
+    # 1. Generar el PDF con las imágenes de input y eliminarlas después de procesar
+    pdf_path = generar_pdf_desde_imagenes(rut, folio, orden_imagenes=orden_imagenes, delete_after_processing=True)
     if not pdf_path:
         return {
             "status": "error",
