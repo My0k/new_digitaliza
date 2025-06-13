@@ -386,53 +386,137 @@ def scan_documents():
 def execute_ocr():
     """Ejecuta el script de OCR para extraer texto de las imágenes."""
     try:
-        # Verificar si se especificó un archivo específico
+        # Verificar si se especificaron archivos específicos
         filename = request.args.get('filename')
+        second_image = request.args.get('second_image')
         
         # Obtener las imágenes a procesar
         if filename:
-            # Procesar solo la imagen especificada
+            # Procesar las imágenes especificadas
             image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             if not os.path.exists(image_path):
                 return jsonify({'success': False, 'error': f'Archivo no encontrado: {filename}'}), 404
-            image_files = [image_path]
+            
+            # Obtener todas las imágenes y ordenarlas
+            all_images = []
+            for file in os.listdir(app.config['UPLOAD_FOLDER']):
+                if file.lower().endswith(('.jpg', '.jpeg')):
+                    all_images.append(os.path.join(app.config['UPLOAD_FOLDER'], file))
+            
+            # Ordenar por nombre de archivo
+            all_images.sort()
+            
+            # Encontrar los índices de las imágenes actuales
+            current_index = next((i for i, path in enumerate(all_images) if os.path.basename(path) == filename), -1)
+            second_index = next((i for i, path in enumerate(all_images) if os.path.basename(path) == second_image), -1) if second_image else -1
+            
+            if current_index == -1:
+                return jsonify({'success': False, 'error': f'No se pudo encontrar el archivo en la lista: {filename}'}), 404
+            
+            # Tomar las imágenes especificadas
+            image_files = [all_images[current_index]]
+            if second_index != -1:
+                image_files.append(all_images[second_index])
+                logger.info(f"Imagen actual: {filename}, segunda imagen: {second_image}")
+            else:
+                logger.info(f"No hay segunda imagen disponible para {filename}")
         else:
-            # Si no se especificó, usar la imagen más reciente
-            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=1)
+            # Si no se especificó, usar las dos imágenes más recientes
+            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=2)
         
         if not image_files:
             return jsonify({'success': False, 'error': 'No hay imágenes disponibles para OCR'}), 400
         
+        logger.info(f"Total de imágenes a procesar: {len(image_files)}")
+        for img in image_files:
+            logger.info(f"Imagen en lista: {os.path.basename(img)}")
+        
+        # Procesar las imágenes en orden
+        final_student_data = {}
+        processed_files = []
+        all_ocr_texts = []
+        
         # Procesar la primera imagen
-        image_path = image_files[0]
-        logger.info(f"Ejecutando OCR en: {image_path}")
+        first_image_path = image_files[0]
+        logger.info(f"Ejecutando OCR en primera imagen: {first_image_path}")
         
         try:
             # Procesamiento directo con pytesseract
             from PIL import Image as PILImage
             import pytesseract
-            img = PILImage.open(image_path)
+            img = PILImage.open(first_image_path)
             ocr_text = pytesseract.image_to_string(img, lang='spa')
             
             # Importar la función para extraer datos del estudiante
             from functions.test_ocr import extract_student_data
             student_data = extract_student_data(ocr_text)
             
-            # Verificar y mostrar la respuesta antes de enviarla
-            logger.info(f"Respuesta final OCR - Datos extraídos: {student_data}")
+            # Guardar los datos encontrados
+            if student_data:
+                final_student_data.update(student_data)
+                logger.info(f"Datos encontrados en primera imagen: {student_data}")
+            else:
+                logger.info("No se encontraron datos en la primera imagen")
             
-            return jsonify({
-                'success': True, 
-                'output': 'OCR ejecutado directamente',
-                'ocr_text': ocr_text,
-                'student_data': student_data,
-                'processed_file': os.path.basename(image_path)
-            }), 200
+            # Guardar el texto OCR de esta imagen
+            all_ocr_texts.append({
+                'file': os.path.basename(first_image_path),
+                'text': ocr_text
+            })
+            processed_files.append(os.path.basename(first_image_path))
             
-        except Exception as inner_e:
-            logger.error(f"Error en procesamiento directo: {str(inner_e)}")
-            # Continuar con el método alternativo...
+        except Exception as e:
+            logger.error(f"Error en procesamiento de primera imagen {first_image_path}: {str(e)}")
         
+        # Verificar si necesitamos procesar la segunda imagen
+        needs_second_image = len(image_files) > 1 and (not final_student_data.get('rut') or not final_student_data.get('folio'))
+        logger.info(f"¿Necesita segunda imagen? {needs_second_image}")
+        logger.info(f"Datos actuales: {final_student_data}")
+        
+        if needs_second_image:
+            second_image_path = image_files[1]
+            logger.info(f"Ejecutando OCR en segunda imagen: {second_image_path}")
+            
+            try:
+                # Procesamiento directo con pytesseract
+                img = PILImage.open(second_image_path)
+                ocr_text = pytesseract.image_to_string(img, lang='spa')
+                
+                # Extraer datos del estudiante
+                student_data = extract_student_data(ocr_text)
+                
+                # Actualizar solo los campos que faltan
+                if student_data:
+                    logger.info(f"Datos encontrados en segunda imagen: {student_data}")
+                    for key, value in student_data.items():
+                        if key not in final_student_data or not final_student_data[key]:
+                            final_student_data[key] = value
+                            logger.info(f"Actualizando {key} con valor {value}")
+                else:
+                    logger.info("No se encontraron datos en la segunda imagen")
+                
+                # Guardar el texto OCR de esta imagen
+                all_ocr_texts.append({
+                    'file': os.path.basename(second_image_path),
+                    'text': ocr_text
+                })
+                processed_files.append(os.path.basename(second_image_path))
+                
+            except Exception as e:
+                logger.error(f"Error en procesamiento de segunda imagen {second_image_path}: {str(e)}")
+        
+        # Verificar y mostrar la respuesta antes de enviarla
+        logger.info(f"Respuesta final OCR - Datos extraídos: {final_student_data}")
+        logger.info(f"Imágenes procesadas: {processed_files}")
+        
+        return jsonify({
+            'success': True, 
+            'output': 'OCR ejecutado directamente',
+            'ocr_texts': all_ocr_texts,
+            'student_data': final_student_data,
+            'processed_files': processed_files
+        }), 200
+            
     except Exception as e:
         error_msg = f"Error al ejecutar OCR: {str(e)}"
         logger.error(error_msg)

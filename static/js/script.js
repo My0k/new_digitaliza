@@ -747,9 +747,10 @@ function runOCR() {
         return;
     }
     
-    // Obtener el nombre de la primera imagen según el orden actual
+    // Obtener las dos primeras imágenes según el orden actual
     const firstImageName = imageOrder[0];
-    console.log("Procesando OCR en la primera imagen:", firstImageName);
+    const secondImageName = imageOrder[1];
+    console.log("Procesando OCR en las imágenes:", firstImageName, secondImageName);
     
     // Añadir un indicador visual temporal
     const firstImageCard = document.querySelector('.col-md-6:first-child .card');
@@ -760,8 +761,8 @@ function runOCR() {
         }, 2000);
     }
     
-    // Llamar al endpoint que ejecutará el script con la imagen específica
-    fetch(`/ocr?filename=${firstImageName}`)
+    // Llamar al endpoint que ejecutará el script con ambas imágenes
+    fetch(`/ocr?filename=${firstImageName}&second_image=${secondImageName}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -792,8 +793,31 @@ function runOCR() {
                     ocrMessage = '<div class="alert alert-warning">No se detectaron datos automáticamente. Por favor, ingrese manualmente el RUT y Folio.</div>';
                 }
                 
-                // Asegurarse de que el texto OCR esté disponible y formateado correctamente
-                const ocrText = data.ocr_text || "No se pudo extraer texto de la imagen";
+                // Crear mensaje sobre las imágenes procesadas
+                let processedImagesMessage = '';
+                if (data.processed_files && data.processed_files.length > 0) {
+                    processedImagesMessage = `
+                        <div class="alert alert-info mb-3">
+                            <strong>Imágenes procesadas:</strong>
+                            <ul class="mb-0 mt-2">
+                                ${data.processed_files.map(file => `<li>${file}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+                
+                // Crear el contenido del texto OCR
+                let ocrTextContent = '';
+                if (data.ocr_texts && data.ocr_texts.length > 0) {
+                    ocrTextContent = data.ocr_texts.map(ocr => `
+                        <div class="mb-3">
+                            <h6>Texto extraído de ${ocr.file}:</h6>
+                            <pre class="ocr-result" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${ocr.text}</pre>
+                        </div>
+                    `).join('');
+                } else {
+                    ocrTextContent = '<div class="alert alert-warning">No se pudo extraer texto de las imágenes</div>';
+                }
                 
                 // Crear modal para mostrar el resultado del OCR
                 const modalHtml = `
@@ -801,16 +825,17 @@ function runOCR() {
                     <div class="modal-dialog modal-lg modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR (Página 1: ${firstImageName})</h5>
+                                <h5 class="modal-title" id="ocrResultModalLabel">Resultados del OCR</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <div class="modal-body">
                                 ${ocrMessage}
+                                ${processedImagesMessage}
                                 <div class="alert alert-info mb-3">
                                     <strong>Datos extraídos:</strong>
                                     <ul class="mb-0 mt-2">
                                         <li><strong>RUT:</strong> ${data.student_data?.rut || 'No encontrado'}</li>
-                                        <li><strong>Folio:</strong> ${data.student_data?.folio || 'No encontrado'}</li>
+                                        <li><strong>Folio:</strong> ${data.student_data?.folio || 'No encontrado'}
                                     </ul>
                                     <div class="mt-3 text-dark fw-bold">
                                         Revisa los datos en la pantalla principal antes de procesar el documento
@@ -825,8 +850,7 @@ function runOCR() {
                                 
                                 <div class="collapse show" id="collapseOcrText">
                                     <div class="card card-body">
-                                        <h6>Texto completo extraído:</h6>
-                                        <pre class="ocr-result" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${ocrText}</pre>
+                                        ${ocrTextContent}
                                     </div>
                                 </div>
                             </div>
@@ -852,8 +876,8 @@ function runOCR() {
                 
                 // Manejar el botón de copiar
                 document.getElementById('copyOcrBtn').addEventListener('click', function() {
-                    const ocrText = data.ocr_text;
-                    navigator.clipboard.writeText(ocrText).then(() => {
+                    const allText = data.ocr_texts.map(ocr => `=== ${ocr.file} ===\n${ocr.text}`).join('\n\n');
+                    navigator.clipboard.writeText(allText).then(() => {
                         this.innerHTML = '<i class="fas fa-check me-1"></i> Copiado';
                         setTimeout(() => {
                             this.innerHTML = '<i class="fas fa-copy me-1"></i> Copiar al portapapeles';

@@ -64,36 +64,39 @@ def extract_student_data(ocr_text):
     else:
         print("No se encontraron RUTs en el texto")
     
-    # Patrón para folio: Primero buscamos el formato específico "; XXXXXXXXXX" (10 dígitos)
-    # Primero buscar el patrón específico de punto y coma
-    semicolon_match = re.search(r';\s*(\d{10})', ocr_text)
-    if semicolon_match:
-        data['folio'] = semicolon_match.group(1)
-        print(f"Folio encontrado con patrón '; XXXXXXXXXX': {data['folio']}")
-    else:
-        # Si no se encuentra, buscar secuencia de 10 dígitos
-        ten_digit_match = re.search(r'(?<!\d)(\d{10})(?!\d)', ocr_text)
-        if ten_digit_match:
-            data['folio'] = ten_digit_match.group(1)
-            print(f"Folio encontrado como secuencia de 10 dígitos: {data['folio']}")
-        else:
-            # Si no hay secuencia de 10 dígitos, buscar otros patrones
-            folio_patterns = [
-                r';\s*(\d{10})',  # Patrón prioritario: punto y coma seguido de 10 dígitos
-                r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d{10})',
-                r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d{10})',
-                r'[Nn][°º]\s*[:-]?\s*(\d{10})',
-                r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d+)',
-                r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d+)',
-                r'[Nn][°º]\s*[:-]?\s*(\d+)'
-            ]
-            
-            for pattern in folio_patterns:
-                matches = re.findall(pattern, ocr_text)
-                if matches:
-                    data['folio'] = matches[0]
-                    print(f"Folio encontrado con patrón alternativo: {data['folio']}")
+    # Patrones mejorados para folio
+    folio_patterns = [
+        # Patrones específicos de punto y coma
+        r';\s*(\d{10})',  # Punto y coma seguido de 10 dígitos
+        r';\s*(\d{8,10})',  # Punto y coma seguido de 8-10 dígitos
+        
+        # Patrones de folio explícitos
+        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d{8,10})',
+        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d{8,10})',
+        r'[Nn][°º]\s*[:-]?\s*(\d{8,10})',
+        
+        # Patrones de secuencia de dígitos
+        r'(?<!\d)(\d{10})(?!\d)',  # Exactamente 10 dígitos
+        r'(?<!\d)(\d{8,10})(?!\d)',  # 8-10 dígitos
+        
+        # Patrones de folio más flexibles
+        r'[Ff][Oo][Ll][Ii][Oo]\s*[:-]?\s*(\d+)',
+        r'[Nn][Úú][Mm][Ee][Rr][Oo]\s*[:-]?\s*(\d+)',
+        r'[Nn][°º]\s*[:-]?\s*(\d+)'
+    ]
+    
+    # Buscar folio con los patrones en orden de prioridad
+    for pattern in folio_patterns:
+        matches = re.findall(pattern, ocr_text)
+        if matches:
+            # Tomar el primer match que tenga 8 o más dígitos
+            for match in matches:
+                if len(match) >= 8:
+                    data['folio'] = match
+                    print(f"Folio encontrado con patrón '{pattern}': {data['folio']}")
                     break
+            if 'folio' in data:
+                break
     
     print(f"Datos extraídos: {data}")
     
