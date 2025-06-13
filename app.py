@@ -390,23 +390,43 @@ def execute_ocr():
         filename = request.args.get('filename')
         first_image = request.args.get('firstImage')  # Nombre de la imagen marcada como Primera
         
+        logger.info(f"=== INICIO PROCESO OCR ===")
+        logger.info(f"Imagen solicitada: {filename}")
+        logger.info(f"Imagen Primera: {first_image}")
+        logger.info(f"Parámetros recibidos: {dict(request.args)}")
+        
         if not filename or filename == 'No hay imágenes disponibles':
+            logger.warning("No se proporcionó nombre de archivo")
             return jsonify({
                 'success': False,
                 'error': 'No se ha seleccionado ninguna imagen para procesar'
             }), 400
         
+        # Si no se proporciona firstImage, intentar encontrar la imagen Primera
+        if not first_image:
+            logger.warning("No se proporcionó imagen Primera, buscando en la carpeta...")
+            # Buscar archivos que empiecen con "Primera"
+            for file in os.listdir(app.config['UPLOAD_FOLDER']):
+                if file.startswith('Primera'):
+                    first_image = file.replace('Primera', '')
+                    logger.info(f"Imagen Primera encontrada: {first_image}")
+                    break
+        
         # Verificar que la imagen a procesar es la marcada como Primera
         if filename != first_image:
-            logger.warning(f"Intento de procesar imagen incorrecta. Primera: {first_image}, Seleccionada: {filename}")
+            logger.warning(f"Intento de procesar imagen incorrecta:")
+            logger.warning(f"- Imagen Primera: {first_image}")
+            logger.warning(f"- Imagen solicitada: {filename}")
+            logger.warning(f"- URL completa: {request.url}")
             return jsonify({
                 'success': False,
-                'error': 'El OCR debe ejecutarse sobre la imagen marcada como Primera'
+                'error': f'El OCR debe ejecutarse sobre la imagen marcada como Primera ({first_image})'
             }), 400
         
         # Procesar solo la imagen especificada
         image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if not os.path.exists(image_path):
+            logger.error(f"Archivo no encontrado: {image_path}")
             return jsonify({
                 'success': False,
                 'error': f'Archivo no encontrado: {filename}'
@@ -427,6 +447,7 @@ def execute_ocr():
             
             # Verificar y mostrar la respuesta antes de enviarla
             logger.info(f"Respuesta final OCR - Datos extraídos: {student_data}")
+            logger.info(f"=== FIN PROCESO OCR ===")
             
             return jsonify({
                 'success': True, 
