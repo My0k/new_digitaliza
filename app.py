@@ -57,6 +57,18 @@ def get_latest_images(folder='input', count=None):
     Si count es None, devuelve todas las imágenes disponibles."""
     try:
         files = glob.glob(os.path.join(folder, '*.jpg')) + glob.glob(os.path.join(folder, '*.jpeg'))
+        
+        # Buscar la imagen marcada como Primera
+        first_image = None
+        for file in os.listdir(folder):
+            if file.startswith('Primera'):
+                first_image = file.replace('Primera', '')
+                logger.info(f"=== IMAGEN PRIMERA DETECTADA ===")
+                logger.info(f"Nombre completo: {file}")
+                logger.info(f"Nombre sin prefijo: {first_image}")
+                logger.info(f"Ruta completa: {os.path.join(folder, first_image)}")
+                break
+        
         # Ordenar archivos por fecha de modificación (más reciente primero)
         files.sort(key=os.path.getmtime, reverse=True)
         return files[:count] if count is not None else files
@@ -67,6 +79,17 @@ def get_latest_images(folder='input', count=None):
 def get_image_data(image_path):
     """Convierte una imagen a base64 para mostrarla en HTML."""
     try:
+        # Verificar si esta imagen es la Primera
+        filename = os.path.basename(image_path)
+        is_first = False
+        for file in os.listdir(app.config['UPLOAD_FOLDER']):
+            if file.startswith('Primera') and file.replace('Primera', '') == filename:
+                is_first = True
+                logger.info(f"=== IMAGEN PRIMERA ENCONTRADA EN get_image_data ===")
+                logger.info(f"Nombre del archivo: {filename}")
+                logger.info(f"Ruta completa: {image_path}")
+                break
+
         with Image.open(image_path) as img:
             # Redimensionar si es necesario
             max_size = (1200, 1200)
@@ -80,7 +103,8 @@ def get_image_data(image_path):
                 'name': os.path.basename(image_path),
                 'path': image_path,
                 'data': f'data:image/jpeg;base64,{img_str}',
-                'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S')
+                'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                'is_first': is_first  # Agregar flag para indicar si es la imagen Primera
             }
     except Exception as e:
         logger.error(f"Error al procesar imagen {image_path}: {e}")
@@ -89,7 +113,8 @@ def get_image_data(image_path):
             'path': image_path,
             'data': None,
             'error': str(e),
-            'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S')
+            'modified': datetime.fromtimestamp(os.path.getmtime(image_path)).strftime('%Y-%m-%d %H:%M:%S'),
+            'is_first': False
         }
 
 # Función para generar un nombre de archivo único basado en timestamp y letras aleatorias
