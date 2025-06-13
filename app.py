@@ -388,19 +388,11 @@ def execute_ocr():
     try:
         # Verificar si se especificó un archivo específico
         filename = request.args.get('filename')
-        is_first = request.args.get('isFirst', 'false').lower() == 'true'
         
         if not filename or filename == 'No hay imágenes disponibles':
             return jsonify({
                 'success': False,
                 'error': 'No se ha seleccionado ninguna imagen para procesar'
-            }), 400
-        
-        # Si la imagen no está marcada como Primera, devolver error
-        if not is_first:
-            return jsonify({
-                'success': False,
-                'error': 'El OCR solo debe ejecutarse sobre la imagen marcada como Primera'
             }), 400
         
         # Procesar solo la imagen especificada
@@ -411,7 +403,7 @@ def execute_ocr():
                 'error': f'Archivo no encontrado: {filename}'
             }), 404
         
-        logger.info(f"Ejecutando OCR en imagen Primera: {image_path}")
+        logger.info(f"Ejecutando OCR en imagen seleccionada: {image_path}")
         
         try:
             # Procesamiento directo con pytesseract
@@ -432,8 +424,7 @@ def execute_ocr():
                 'output': 'OCR ejecutado directamente',
                 'ocr_text': ocr_text,
                 'student_data': student_data,
-                'processed_file': filename,
-                'is_first': True
+                'processed_file': filename
             }), 200
             
         except Exception as inner_e:
@@ -570,6 +561,7 @@ def generar_pdf():
         rut_dv = data.get('rutDV', '')
         folio = data.get('folio', '')
         selected_images = data.get('selectedImages', [])
+        is_reversed = data.get('isReversed', False)  # Nuevo parámetro para el orden
         
         if not rut_number or not rut_dv or not folio:
             return jsonify({'success': False, 'error': 'Faltan datos necesarios'}), 400
@@ -582,6 +574,7 @@ def generar_pdf():
         
         logger.info(f"Iniciando generación de PDF para RUT: {rut_completo}, Folio: {folio}, Usuario: {usuario}")
         logger.info(f"Orden de imágenes proporcionado: {selected_images}")
+        logger.info(f"Orden invertido: {is_reversed}")
         
         # Inicializar resultado_api como None
         resultado_api = None
@@ -611,7 +604,8 @@ def generar_pdf():
             logger.info(f"Folio {folio} actualizado exitosamente desde la API: {resultado_api.get('message')}")
         
         # 1. Usar la función procesar_y_subir_documento de procesar_documento.py
-        resultado = procesar_y_subir_documento(rut_completo, folio, usuario, selected_images)
+        # Pasar el parámetro is_reversed para mantener el orden correcto
+        resultado = procesar_y_subir_documento(rut_completo, folio, usuario, selected_images, is_reversed)
         
         if resultado.get('status') != 'success':
             logger.error(f"Error al procesar y subir documento: {resultado.get('message')}")
@@ -625,6 +619,7 @@ def generar_pdf():
         resultado['rut'] = rut_completo
         resultado['folio'] = folio
         resultado['filename'] = os.path.basename(resultado.get('pdf_path', ''))
+        resultado['is_reversed'] = is_reversed
         
         # Agregar información sobre el formato de RUT usado si está disponible
         if resultado_api and 'data' in resultado_api and 'formato_rut_usado' in resultado_api['data']:
