@@ -389,22 +389,20 @@ def execute_ocr():
         # Verificar si se especificó un archivo específico
         filename = request.args.get('filename')
         
-        # Obtener las imágenes a procesar
-        if filename:
-            # Procesar solo la imagen especificada
-            image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            if not os.path.exists(image_path):
-                return jsonify({'success': False, 'error': f'Archivo no encontrado: {filename}'}), 404
-            image_files = [image_path]
-        else:
-            # Si no se especificó, usar la imagen más reciente
-            image_files = get_latest_images(folder=app.config['UPLOAD_FOLDER'], count=1)
+        if not filename or filename == 'No hay imágenes disponibles':
+            return jsonify({
+                'success': False,
+                'error': 'No se ha seleccionado ninguna imagen para procesar'
+            }), 400
         
-        if not image_files:
-            return jsonify({'success': False, 'error': 'No hay imágenes disponibles para OCR'}), 400
+        # Procesar solo la imagen especificada
+        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(image_path):
+            return jsonify({
+                'success': False,
+                'error': f'Archivo no encontrado: {filename}'
+            }), 404
         
-        # Procesar la primera imagen
-        image_path = image_files[0]
         logger.info(f"Ejecutando OCR en: {image_path}")
         
         try:
@@ -426,12 +424,15 @@ def execute_ocr():
                 'output': 'OCR ejecutado directamente',
                 'ocr_text': ocr_text,
                 'student_data': student_data,
-                'processed_file': os.path.basename(image_path)
+                'processed_file': filename
             }), 200
             
         except Exception as inner_e:
             logger.error(f"Error en procesamiento directo: {str(inner_e)}")
-            # Continuar con el método alternativo...
+            return jsonify({
+                'success': False,
+                'error': f'Error al procesar la imagen: {str(inner_e)}'
+            }), 500
         
     except Exception as e:
         error_msg = f"Error al ejecutar OCR: {str(e)}"
