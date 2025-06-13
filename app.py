@@ -388,11 +388,20 @@ def execute_ocr():
     try:
         # Verificar si se especificó un archivo específico
         filename = request.args.get('filename')
+        first_image = request.args.get('firstImage')  # Nombre de la imagen marcada como Primera
         
         if not filename or filename == 'No hay imágenes disponibles':
             return jsonify({
                 'success': False,
                 'error': 'No se ha seleccionado ninguna imagen para procesar'
+            }), 400
+        
+        # Verificar que la imagen a procesar es la marcada como Primera
+        if filename != first_image:
+            logger.warning(f"Intento de procesar imagen incorrecta. Primera: {first_image}, Seleccionada: {filename}")
+            return jsonify({
+                'success': False,
+                'error': 'El OCR debe ejecutarse sobre la imagen marcada como Primera'
             }), 400
         
         # Procesar solo la imagen especificada
@@ -403,7 +412,7 @@ def execute_ocr():
                 'error': f'Archivo no encontrado: {filename}'
             }), 404
         
-        logger.info(f"Ejecutando OCR en imagen seleccionada: {image_path}")
+        logger.info(f"Ejecutando OCR en imagen Primera: {image_path}")
         
         try:
             # Procesamiento directo con pytesseract
