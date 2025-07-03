@@ -2,6 +2,25 @@
 
 {% block title %}Digitalización{% endblock %}
 
+{% block head_extra %}
+<style>
+    /* Estilos para drag and drop */
+    .sortable .order-row {
+        cursor: move;
+    }
+    
+    .sortable .order-row.dragging {
+        opacity: 0.5;
+        background-color: #f8f9fa;
+    }
+    
+    /* Animación para cambios de posición */
+    .sortable .order-row {
+        transition: transform 0.2s ease;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="col-md-9">
     <div class="card">
@@ -71,11 +90,39 @@
                 </p>
             </div>
             
+            <!-- Botón para ver el orden actual de las imágenes -->
+            <div class="d-grid gap-2 mb-3">
+                <button id="viewOrderBtn" class="btn btn-info btn-lg">
+                    <i class="fas fa-list-ol me-2"></i> Ver Orden de Imágenes
+                </button>
+                <p class="text-muted small mt-1">
+                    Muestra el orden actual de las imágenes registrado en orden.csv
+                </p>
+            </div>
+            
             <!-- Botón grande para actualizar la página manualmente -->
             <div class="d-grid gap-2 mb-3">
                 <button id="refreshPageBtn" class="btn btn-primary btn-lg">
                     <i class="fas fa-sync-alt me-2"></i> Actualizar Página
                 </button>
+            </div>
+            
+            <!-- Campo para guardar texto del lote -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">Identificador de Lote</h6>
+                </div>
+                <div class="card-body">
+                    <div class="input-group">
+                        <input type="text" id="loteField" class="form-control" value="LOTE1">
+                        <button class="btn btn-success" id="saveLoteBtn">
+                            <i class="fas fa-save me-1"></i> Guardar
+                        </button>
+                    </div>
+                    <small class="text-muted mt-2 d-block">
+                        Este identificador se guardará para el lote actual.
+                    </small>
+                </div>
             </div>
             
             <div class="text-center" id="lastUpdateInfo">
@@ -106,10 +153,19 @@
         // Configurar botón para generar carpeta
         document.getElementById('generateFolderBtn').addEventListener('click', generateFolder);
         
+        // Configurar botón para ver el orden de imágenes
+        document.getElementById('viewOrderBtn').addEventListener('click', viewImageOrder);
+        
         // Configurar botón para actualizar la página (F5)
         document.getElementById('refreshPageBtn').addEventListener('click', function() {
             window.location.reload();
         });
+        
+        // Configurar botón para guardar el texto del lote
+        document.getElementById('saveLoteBtn').addEventListener('click', saveLoteText);
+        
+        // Cargar el texto del lote guardado previamente
+        loadLoteText();
         
         // Configurar botones de paginación
         document.getElementById('prevPageBtn').addEventListener('click', function() {
@@ -193,6 +249,367 @@
         setInterval(checkImagesForFolder, 2000);
     });
     
+    // Función para ver el orden actual de las imágenes
+    function viewImageOrder() {
+        // Crear un modal para mostrar el orden
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'orderModal';
+        modal.setAttribute('tabindex', '-1');
+        modal.setAttribute('aria-labelledby', 'orderModalLabel');
+        modal.setAttribute('aria-hidden', 'true');
+        
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="orderModalLabel">Orden Actual de Imágenes</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="text-center" id="orderLoading">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p>Cargando datos de orden...</p>
+                        </div>
+                        <div id="orderContent" style="display: none;">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i> Puede arrastrar las filas para cambiar el orden de las imágenes.
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Posición</th>
+                                            <th>Nombre de Imagen</th>
+                                            <th>Marcador</th>
+                                            <th>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="orderTableBody" class="sortable">
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="alert alert-info mt-3">
+                                <i class="fas fa-info-circle me-2"></i> 
+                                <strong>Marcador de posición:</strong> Indica desde dónde se agregarán las nuevas imágenes. 
+                                Seleccione la posición deseada y guarde el orden.
+                            </div>
+                            <div class="d-grid gap-2 mt-3">
+                                <button id="saveOrderBtn" class="btn btn-primary">
+                                    <i class="fas fa-save me-2"></i> Guardar Orden
+                                </button>
+                            </div>
+                        </div>
+                        <div id="orderError" class="alert alert-danger" style="display: none;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Agregar el modal al documento
+        document.body.appendChild(modal);
+        
+        // Mostrar el modal
+        const modalInstance = new bootstrap.Modal(document.getElementById('orderModal'));
+        modalInstance.show();
+        
+        // Cargar los datos del archivo CSV
+        fetch('/orden.csv')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('No se pudo cargar el archivo de orden');
+                }
+                return response.text();
+            })
+            .then(csvText => {
+                // Ocultar el spinner
+                document.getElementById('orderLoading').style.display = 'none';
+                document.getElementById('orderContent').style.display = 'block';
+                
+                // Parsear el CSV
+                const rows = csvText.split('\n');
+                const tableBody = document.getElementById('orderTableBody');
+                
+                // Limpiar tabla
+                tableBody.innerHTML = '';
+                
+                // Almacenar datos de orden para usar al guardar
+                const orderData = [];
+                
+                // Variable para rastrear el marcador de posición actual
+                let currentMarker = null;
+                
+                // Procesar filas (omitir la primera fila que son los encabezados)
+                for (let i = 1; i < rows.length; i++) {
+                    if (rows[i].trim() === '') continue; // Saltar filas vacías
+                    
+                    const columns = rows[i].split(',');
+                    if (columns.length >= 2) {
+                        const row = document.createElement('tr');
+                        row.draggable = true;
+                        row.className = 'order-row';
+                        row.dataset.filename = columns[0]; // Guardar nombre de archivo como atributo data
+                        row.dataset.position = columns[1]; // Guardar posición como atributo data
+                        
+                        // Columna de posición
+                        const posCell = document.createElement('td');
+                        posCell.textContent = columns[1]; // Posición
+                        posCell.className = 'position-cell';
+                        row.appendChild(posCell);
+                        
+                        // Columna de nombre de imagen
+                        const nameCell = document.createElement('td');
+                        nameCell.textContent = columns[0]; // Nombre de imagen
+                        row.appendChild(nameCell);
+                        
+                        // Columna de marcador
+                        const markerCell = document.createElement('td');
+                        const markerValue = columns.length > 2 ? columns[2].trim() : '';
+                        
+                        // Crear un radio button para el marcador
+                        const markerRadio = document.createElement('input');
+                        markerRadio.type = 'radio';
+                        markerRadio.name = 'positionMarker';
+                        markerRadio.className = 'form-check-input position-marker';
+                        markerRadio.value = columns[1]; // La posición como valor
+                        
+                        // Si este es el marcador actual, seleccionarlo
+                        if (markerValue && !isNaN(parseInt(markerValue))) {
+                            markerRadio.checked = true;
+                            currentMarker = parseInt(columns[1]);
+                        }
+                        
+                        markerCell.appendChild(markerRadio);
+                        row.appendChild(markerCell);
+                        
+                        // Columna de acciones
+                        const actionsCell = document.createElement('td');
+                        actionsCell.innerHTML = `
+                            <button class="btn btn-sm btn-outline-primary move-up" title="Mover arriba">
+                                <i class="fas fa-arrow-up"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary move-down" title="Mover abajo">
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                        `;
+                        row.appendChild(actionsCell);
+                        
+                        tableBody.appendChild(row);
+                        
+                        // Guardar datos para el guardado
+                        orderData.push({
+                            filename: columns[0],
+                            position: parseInt(columns[1]),
+                            marker: markerValue
+                        });
+                    }
+                }
+                
+                // Si no hay datos, mostrar mensaje
+                if (tableBody.children.length === 0) {
+                    const emptyRow = document.createElement('tr');
+                    const emptyCell = document.createElement('td');
+                    emptyCell.colSpan = 4; // Ahora tenemos 4 columnas
+                    emptyCell.textContent = 'No hay datos de orden disponibles';
+                    emptyCell.className = 'text-center';
+                    emptyRow.appendChild(emptyCell);
+                    tableBody.appendChild(emptyRow);
+                } else {
+                    // Si no hay marcador seleccionado, seleccionar el primero por defecto
+                    if (!currentMarker && document.querySelector('.position-marker')) {
+                        document.querySelector('.position-marker').checked = true;
+                    }
+                    
+                    // Configurar eventos para los botones de mover arriba/abajo
+                    setupMoveButtons();
+                    
+                    // Configurar arrastrar y soltar para reordenar
+                    setupDragAndDrop();
+                    
+                    // Configurar botón de guardar
+                    document.getElementById('saveOrderBtn').addEventListener('click', function() {
+                        saveOrder();
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error al cargar el archivo de orden:', error);
+                document.getElementById('orderLoading').style.display = 'none';
+                const errorDiv = document.getElementById('orderError');
+                errorDiv.textContent = `Error: ${error.message}`;
+                errorDiv.style.display = 'block';
+            });
+    }
+    
+    // Configurar botones de mover arriba/abajo
+    function setupMoveButtons() {
+        // Botones para mover hacia arriba
+        document.querySelectorAll('.move-up').forEach(button => {
+            button.addEventListener('click', function() {
+                const row = this.closest('tr');
+                const prevRow = row.previousElementSibling;
+                
+                if (prevRow) {
+                    row.parentNode.insertBefore(row, prevRow);
+                    updatePositionNumbers();
+                }
+            });
+        });
+        
+        // Botones para mover hacia abajo
+        document.querySelectorAll('.move-down').forEach(button => {
+            button.addEventListener('click', function() {
+                const row = this.closest('tr');
+                const nextRow = row.nextElementSibling;
+                
+                if (nextRow) {
+                    row.parentNode.insertBefore(nextRow, row);
+                    updatePositionNumbers();
+                }
+            });
+        });
+    }
+    
+    // Configurar arrastrar y soltar para reordenar
+    function setupDragAndDrop() {
+        const tbody = document.getElementById('orderTableBody');
+        let draggedItem = null;
+        
+        // Eventos para cada fila
+        document.querySelectorAll('.order-row').forEach(row => {
+            row.addEventListener('dragstart', function() {
+                draggedItem = this;
+                setTimeout(() => {
+                    this.classList.add('dragging');
+                }, 0);
+            });
+            
+            row.addEventListener('dragend', function() {
+                draggedItem = null;
+                this.classList.remove('dragging');
+                updatePositionNumbers();
+            });
+            
+            row.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                if (draggedItem && draggedItem !== this) {
+                    const rect = this.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    
+                    if (y < rect.height / 2) {
+                        tbody.insertBefore(draggedItem, this);
+                    } else {
+                        tbody.insertBefore(draggedItem, this.nextSibling);
+                    }
+                }
+            });
+        });
+    }
+    
+    // Actualizar números de posición después de reordenar
+    function updatePositionNumbers() {
+        document.querySelectorAll('#orderTableBody tr.order-row').forEach((row, index) => {
+            const posCell = row.querySelector('.position-cell');
+            if (posCell) {
+                const newPosition = index + 1;
+                posCell.textContent = newPosition;
+                row.dataset.position = newPosition;
+                
+                // Actualizar también el valor del radio button
+                const radio = row.querySelector('.position-marker');
+                if (radio) {
+                    radio.value = newPosition;
+                }
+            }
+        });
+    }
+    
+    // Guardar el orden actualizado
+    function saveOrder() {
+        const saveBtn = document.getElementById('saveOrderBtn');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Guardando...';
+        saveBtn.disabled = true;
+        
+        // Obtener el marcador de posición seleccionado
+        const selectedMarker = document.querySelector('.position-marker:checked');
+        const markerPosition = selectedMarker ? parseInt(selectedMarker.value) : 1;
+        
+        // Recopilar datos actualizados
+        const rows = document.querySelectorAll('#orderTableBody tr.order-row');
+        const csvData = [['nombre_img', 'posicion', 'marcador_posicion']]; // Encabezados
+        
+        rows.forEach((row, index) => {
+            const filename = row.dataset.filename;
+            const position = index + 1;
+            // Solo la fila con el marcador seleccionado tendrá el valor del marcador
+            const markerValue = position === markerPosition ? markerPosition : '';
+            csvData.push([filename, position, markerValue]);
+        });
+        
+        // Convertir a formato CSV
+        const csvContent = csvData.map(row => row.join(',')).join('\n');
+        
+        // Enviar al servidor
+        fetch('/update_order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ csvContent })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Mostrar mensaje de éxito
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-success alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <strong>¡Éxito!</strong> El orden ha sido actualizado. Las nuevas imágenes se insertarán en la posición ${markerPosition}.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('orderContent').prepend(notification);
+                
+                // Actualizar la vista principal después de un breve retraso
+                setTimeout(() => {
+                    refreshImages();
+                }, 1000);
+            } else {
+                // Mostrar error
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <strong>Error:</strong> ${data.error}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('orderContent').prepend(notification);
+            }
+            
+            // Restaurar botón
+            saveBtn.innerHTML = originalText;
+            saveBtn.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error al guardar el orden:', error);
+            
+            // Mostrar error
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+            notification.innerHTML = `
+                <strong>Error:</strong> No se pudo guardar el orden. ${error.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.getElementById('orderContent').prepend(notification);
+            
+            // Restaurar botón
+            saveBtn.innerHTML = originalText;
+            saveBtn.disabled = false;
+        });
+    }
+    
     // Función para verificar si hay imágenes y actualizar el estado del botón
     function checkImagesForFolder() {
         const imageCount = allImages.length;
@@ -268,9 +685,17 @@
             const imageDisplay = image.data || 'static/img/loading.gif';
             const loadingText = image.data ? '' : '<div class="text-center p-2 bg-light">Cargando miniatura...</div>';
             
+            // Verificar si esta imagen tiene el marcador de posición
+            const hasMarker = image.hasMarker === true;
+            const markerClass = hasMarker ? 'border-success border-3' : '';
+            const markerBadge = hasMarker ? '<div class="position-absolute top-0 end-0 p-2"><span class="badge bg-success">Punto de inserción</span></div>' : '';
+            
             col.innerHTML = `
-                <div class="card h-100 image-card">
-                    <img src="${imageDisplay}" class="card-img-top" alt="${image.name}">
+                <div class="card h-100 image-card ${markerClass}">
+                    <div class="position-relative">
+                        <img src="${imageDisplay}" class="card-img-top" alt="${image.name}">
+                        ${markerBadge}
+                    </div>
                     ${loadingText}
                     <div class="card-body">
                         <h5 class="card-title">${image.name}</h5>
@@ -285,6 +710,9 @@
                         </button>
                         <button class="btn btn-sm btn-danger" onclick="deleteImage('${image.name}')">
                             <i class="fas fa-trash"></i>
+                        </button>
+                        <button class="btn btn-sm btn-success mt-1 w-100" onclick="setMarker('${image.name}')">
+                            Continuar desde acá
                         </button>
                     </div>
                 </div>
@@ -450,7 +878,7 @@
                         const notification = document.createElement('div');
                         notification.className = 'alert alert-success alert-dismissible fade show mt-2';
                         notification.innerHTML = `
-                            <small>Imagen "${filename}" eliminada correctamente</small>
+                            <small>Imagen "${filename}" eliminada correctamente. El orden ha sido actualizado.</small>
                             <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
                         `;
                         document.getElementById('imageGrid').prepend(notification);
@@ -462,7 +890,10 @@
                         }, 3000);
                         
                         // Actualizar imágenes después de la eliminación
-                        setTimeout(refreshImages, 500);
+                        setTimeout(() => {
+                            // Refrescar completamente la vista para mostrar el nuevo orden y marcador
+                            refreshImages();
+                        }, 500);
                     } else {
                         console.error('Error al eliminar imagen:', data.error);
                         
@@ -592,6 +1023,207 @@
                 scanBtn.innerHTML = originalContent;
                 scanBtn.disabled = false;
             });
+    }
+
+    // Función para establecer el marcador de posición en una imagen específica
+    function setMarker(filename) {
+        if (!filename) return;
+        
+        // Mostrar un indicador de carga
+        const buttons = document.querySelectorAll(`button[onclick="setMarker('${filename}')"]`);
+        const originalContent = buttons.length > 0 ? buttons[0].innerHTML : 'Continuar desde acá';
+        
+        buttons.forEach(btn => {
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Actualizando...';
+            btn.disabled = true;
+        });
+        
+        // Enviar la solicitud al servidor
+        fetch(`/update_marker/${encodeURIComponent(filename)}`, {
+            method: 'POST'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Error HTTP: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Mostrar notificación de éxito
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-success alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <small>Marcador de posición actualizado a la imagen "${filename}"</small>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('imageGrid').prepend(notification);
+                
+                // Auto-ocultar la notificación después de 3 segundos
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => notification.remove(), 500);
+                }, 3000);
+                
+                // Actualizar la vista después de un breve retraso
+                setTimeout(() => {
+                    refreshImages();
+                }, 500);
+            } else {
+                console.error('Error al actualizar marcador:', data.error);
+                
+                // Mostrar notificación de error
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <small>Error al actualizar marcador: ${data.error}</small>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('imageGrid').prepend(notification);
+                
+                // Restaurar botones
+                buttons.forEach(btn => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error en la solicitud:', error);
+            
+            // Mostrar notificación de error
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+            notification.innerHTML = `
+                <small>Error: ${error.message}</small>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.getElementById('imageGrid').prepend(notification);
+            
+            // Restaurar botones
+            buttons.forEach(btn => {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            });
+        });
+    }
+
+    // Función para guardar el texto del lote en localStorage
+    function saveLoteText() {
+        const loteField = document.getElementById('loteField');
+        const loteText = loteField.value.trim();
+        
+        if (loteText) {
+            // Guardar en localStorage
+            localStorage.setItem('loteIdentifier', loteText);
+            
+            // Mostrar notificación de éxito
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-success alert-dismissible fade show';
+            notification.innerHTML = `
+                <small>Identificador de lote guardado: "${loteText}"</small>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            // Insertar la notificación después del campo
+            const cardBody = document.querySelector('#loteField').closest('.card-body');
+            cardBody.appendChild(notification);
+            
+            // Auto-ocultar la notificación después de 3 segundos
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+        }
+    }
+    
+    // Función para cargar el texto del lote desde localStorage
+    function loadLoteText() {
+        const savedLote = localStorage.getItem('loteIdentifier');
+        if (savedLote) {
+            document.getElementById('loteField').value = savedLote;
+        }
+    }
+
+    // Función para generar carpeta y mover imágenes
+    function generateFolder() {
+        // Verificar si hay imágenes para mover
+        if (allImages.length === 0) {
+            alert("No hay imágenes para mover a una carpeta.");
+            return;
+        }
+        
+        // Obtener el identificador del lote
+        const loteIdentifier = document.getElementById('loteField').value.trim() || 'LOTE1';
+        
+        // Deshabilitar el botón y mostrar indicador de carga
+        const generateBtn = document.getElementById('generateFolderBtn');
+        const originalContent = generateBtn.innerHTML;
+        generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Procesando...';
+        generateBtn.disabled = true;
+        
+        // Llamar al endpoint para generar la carpeta
+        fetch('/generar_carpeta', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ loteIdentifier: loteIdentifier })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Error HTTP: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Mostrar mensaje de éxito
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-success alert-dismissible fade show';
+                notification.innerHTML = `
+                    <strong>¡Éxito!</strong> Se ha creado la carpeta ${data.folder_name} con ${data.image_count} imágenes.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('digitalizationControls').appendChild(notification);
+                
+                // Actualizar la vista después de un breve retraso
+                setTimeout(() => {
+                    refreshImages();
+                }, 1000);
+            } else {
+                console.error('Error al generar carpeta:', data.error);
+                
+                // Mostrar mensaje de error
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-danger alert-dismissible fade show';
+                notification.innerHTML = `
+                    <strong>Error:</strong> ${data.error}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('digitalizationControls').appendChild(notification);
+            }
+            
+            // Restaurar el botón
+            generateBtn.innerHTML = originalContent;
+            generateBtn.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error en la solicitud:', error);
+            
+            // Mostrar mensaje de error
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-danger alert-dismissible fade show';
+            notification.innerHTML = `
+                <strong>Error:</strong> ${error.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            document.getElementById('digitalizationControls').appendChild(notification);
+            
+            // Restaurar el botón
+            generateBtn.innerHTML = originalContent;
+            generateBtn.disabled = false;
+        });
     }
 </script>
 {% endblock %} 

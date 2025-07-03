@@ -68,6 +68,77 @@ def get_latest_images(folder='input', count=None):
         logger.error(f"Error al obtener imágenes: {e}")
         return []
 
+# Función para actualizar el CSV de orden de imágenes
+def update_order_csv(images):
+    """
+    Actualiza el archivo orden.csv con los nombres de las imágenes y sus posiciones.
+    
+    Args:
+        images: Lista de rutas de imágenes ordenadas.
+    """
+    try:
+        csv_path = 'orden.csv'
+        
+        # Crear el directorio si no existe
+        os.makedirs(os.path.dirname(csv_path) if os.path.dirname(csv_path) else '.', exist_ok=True)
+        
+        # Verificar si el archivo ya existe para mantener el marcador de posición
+        marcador_posicion = None  # Valor None para indicar que no se ha encontrado un marcador
+        
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader, None)  # Leer encabezados
+                    
+                    # Verificar si el archivo tiene la estructura correcta
+                    if headers and 'marcador_posicion' in headers:
+                        marcador_idx = headers.index('marcador_posicion')
+                        
+                        # Buscar el marcador en todas las filas
+                        for row in reader:
+                            if row and len(row) > marcador_idx and row[marcador_idx].strip():
+                                try:
+                                    marcador_posicion = int(row[marcador_idx])
+                                    logger.info(f"Marcador de posición existente encontrado: {marcador_posicion}")
+                                    break
+                                except (ValueError, TypeError):
+                                    pass
+            except Exception as e:
+                logger.error(f"Error al leer marcador de posición: {e}")
+        
+        # Si no se encontró un marcador, usar 1 por defecto
+        if marcador_posicion is None:
+            marcador_posicion = 1
+            logger.info(f"No se encontró marcador de posición, usando valor por defecto: {marcador_posicion}")
+        
+        # Ajustar el marcador si está fuera de rango
+        if marcador_posicion > len(images):
+            marcador_posicion = len(images) if len(images) > 0 else 1
+            logger.info(f"Marcador de posición ajustado a: {marcador_posicion} (estaba fuera de rango)")
+        
+        # Preparar los datos para el CSV
+        rows = []
+        for i, img_path in enumerate(images, start=1):
+            nombre_img = os.path.basename(img_path)
+            # El marcador se coloca en la posición correspondiente
+            marker_value = marcador_posicion if i == marcador_posicion else ""
+            rows.append([nombre_img, i, marker_value])
+        
+        # Escribir en el CSV
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            # Escribir encabezados
+            writer.writerow(['nombre_img', 'posicion', 'marcador_posicion'])
+            # Escribir datos
+            writer.writerows(rows)
+        
+        logger.info(f"Archivo orden.csv actualizado con {len(rows)} imágenes y marcador en posición {marcador_posicion}")
+        return True
+    except Exception as e:
+        logger.error(f"Error al actualizar orden.csv: {e}")
+        return False
+
 def get_image_data(image_path, thumbnail=True, max_size=800):
     """Obtiene los datos de una imagen para enviar al frontend.
     Si thumbnail es True, genera una versión comprimida de la imagen y la guarda en disco."""
@@ -75,6 +146,28 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
         name = os.path.basename(image_path)
         modified_time = os.path.getmtime(image_path)
         modified = datetime.fromtimestamp(modified_time).strftime('%d/%m/%Y %H:%M:%S')
+        
+        # Verificar si esta imagen tiene el marcador de posición
+        has_marker = False
+        try:
+            csv_path = 'orden.csv'
+            if os.path.exists(csv_path):
+                with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader, None)  # Leer encabezados
+                    
+                    if headers and 'nombre_img' in headers and 'marcador_posicion' in headers:
+                        nombre_idx = headers.index('nombre_img')
+                        marcador_idx = headers.index('marcador_posicion')
+                        
+                        for row in reader:
+                            if len(row) > max(nombre_idx, marcador_idx) and row[nombre_idx] == name:
+                                # Si tiene un valor en la columna marcador_posicion, es el marcador
+                                if row[marcador_idx].strip():
+                                    has_marker = True
+                                break
+        except Exception as e:
+            logger.error(f"Error al verificar marcador para {name}: {str(e)}")
         
         # Verificar si han pasado al menos 10 segundos desde la creación de la imagen
         current_time = time.time()
@@ -105,7 +198,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
                         'modified': modified,
                         'is_thumbnail': False,
                         'pending_thumbnail': True,
-                        'seconds_remaining': max(0, 10 - time_since_creation)
+                        'seconds_remaining': max(0, 10 - time_since_creation),
+                        'hasMarker': has_marker
                     }
                 
                 if thumb_exists:
@@ -149,7 +243,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
                         'modified': modified,
                         'is_thumbnail': False,
                         'pending_thumbnail': True,
-                        'seconds_remaining': max(0, 10 - time_since_creation)
+                        'seconds_remaining': max(0, 10 - time_since_creation),
+                        'hasMarker': has_marker
                     }
             else:
                 # Usar la imagen original
@@ -171,7 +266,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
             'modified': modified,
             'is_thumbnail': thumbnail,
             'thumb_path': thumb_path if thumbnail and 'thumb_path' in locals() else None,
-            'pending_thumbnail': False
+            'pending_thumbnail': False,
+            'hasMarker': has_marker
         }
     except Exception as e:
         logger.error(f"Error al procesar imagen {image_path}: {str(e)}")
@@ -181,7 +277,8 @@ def get_image_data(image_path, thumbnail=True, max_size=800):
             'data': None,
             'modified': 'Error',
             'is_thumbnail': False,
-            'pending_thumbnail': False
+            'pending_thumbnail': False,
+            'hasMarker': False
         }
 
 # Función para generar un nombre de archivo único basado en timestamp y letras aleatorias
@@ -349,6 +446,10 @@ def upload_file():
             logger.info(f"Archivo subido y renombrado: {file.filename} -> {new_filename}")
     
     if uploaded_files:
+        # Actualizar el CSV de orden después de subir nuevos archivos
+        files = get_latest_images()
+        update_order_csv(files)
+        
         return jsonify({'success': True, 'files': uploaded_files}), 200
     else:
         return jsonify({'error': 'No se subieron archivos válidos'}), 400
@@ -374,19 +475,106 @@ def refresh_images():
         # Log para depuración
         logger.debug(f"Refresh: Encontradas {total_images} imágenes, limit={limit}, sort_by={sort_by}")
         
-        # Ordenar archivos según el criterio especificado
-        if sort_by == 'creation':
-            files.sort(key=os.path.getctime, reverse=True)
+        # Intentar leer el orden desde orden.csv
+        csv_path = 'orden.csv'
+        ordered_files = []
+        marcador_posicion = 1  # Por defecto, nuevas imágenes van al principio
+        existing_images = set()  # Conjunto para rastrear imágenes ya en el CSV
+        
+        if os.path.exists(csv_path):
+            try:
+                # Leer el archivo CSV para obtener el orden de las imágenes
+                with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader)  # Leer encabezados
+                    
+                    # Verificar si tenemos la columna marcador_posicion
+                    marcador_idx = -1
+                    if 'marcador_posicion' in headers:
+                        marcador_idx = headers.index('marcador_posicion')
+                    
+                    # Crear un diccionario con posición -> nombre_archivo
+                    order_dict = {}
+                    for row in reader:
+                        if len(row) >= 2:
+                            nombre_img = row[0]
+                            posicion = int(row[1])
+                            order_dict[posicion] = nombre_img
+                            existing_images.add(nombre_img)
+                            
+                            # Leer el marcador de posición (solo de la primera fila con valor)
+                            if marcador_idx >= 0 and len(row) > marcador_idx and row[marcador_idx].strip():
+                                try:
+                                    marcador_posicion = int(row[marcador_idx])
+                                    logger.debug(f"Usando marcador de posición: {marcador_posicion}")
+                                except ValueError:
+                                    logger.warning(f"Valor inválido para marcador_posicion: {row[marcador_idx]}")
+                    
+                    # Ordenar por posición
+                    positions = sorted(order_dict.keys())
+                    
+                    # Construir la lista ordenada de archivos
+                    for pos in positions:
+                        nombre_img = order_dict[pos]
+                        file_path = os.path.join(folder, nombre_img)
+                        if os.path.exists(file_path):
+                            ordered_files.append(file_path)
+                
+                logger.info(f"Usando orden desde CSV: {len(ordered_files)} imágenes, marcador en posición {marcador_posicion}")
+            except Exception as csv_err:
+                logger.error(f"Error al leer orden.csv: {str(csv_err)}")
+                # Si hay error al leer el CSV, usar el orden por defecto
+                if sort_by == 'creation':
+                    files.sort(key=os.path.getctime, reverse=True)
+                else:
+                    files.sort(key=os.path.getmtime, reverse=True)
+                ordered_files = files
         else:
-            files.sort(key=os.path.getmtime, reverse=True)
+            # Si no existe el archivo CSV, ordenar según el criterio especificado
+            if sort_by == 'creation':
+                files.sort(key=os.path.getctime, reverse=True)
+            else:
+                files.sort(key=os.path.getmtime, reverse=True)
+            ordered_files = files
+        
+        # Identificar imágenes nuevas (no están en el CSV)
+        new_files = []
+        for file_path in files:
+            nombre_img = os.path.basename(file_path)
+            if nombre_img not in existing_images:
+                new_files.append(file_path)
+        
+        # Ordenar las imágenes nuevas por fecha de modificación (más reciente primero)
+        if new_files:
+            if sort_by == 'creation':
+                new_files.sort(key=os.path.getctime, reverse=True)
+            else:
+                new_files.sort(key=os.path.getmtime, reverse=True)
+            
+            logger.info(f"Encontradas {len(new_files)} imágenes nuevas para insertar en posición {marcador_posicion}")
+            
+            # Insertar las nuevas imágenes en la posición del marcador
+            if marcador_posicion <= 1:
+                # Si el marcador está al principio, las nuevas imágenes van primero
+                ordered_files = new_files + ordered_files
+            elif marcador_posicion > len(ordered_files):
+                # Si el marcador está después del final, las nuevas imágenes van al final
+                ordered_files.extend(new_files)
+            else:
+                # Insertar en la posición indicada por el marcador
+                ordered_files = ordered_files[:marcador_posicion-1] + new_files + ordered_files[marcador_posicion-1:]
+        
+        # Actualizar el CSV de orden de imágenes con el nuevo orden
+        update_order_csv(ordered_files)
         
         # Aplicar límite si se especificó
         if limit and limit > 0:
-            limited_files = files[:limit]
-            logger.debug(f"Aplicando límite: mostrando {len(limited_files)} de {total_images} imágenes")
+            limited_files = ordered_files[:limit]
+            logger.debug(f"Aplicando límite: mostrando {len(limited_files)} de {len(ordered_files)} imágenes")
             files = limited_files
         else:
-            logger.debug(f"Sin límite: mostrando todas las {total_images} imágenes")
+            files = ordered_files
+            logger.debug(f"Sin límite: mostrando todas las {len(ordered_files)} imágenes")
         
         # Imprimir los nombres de archivos y sus tiempos de modificación para depuración
         debug_info = []
@@ -394,7 +582,7 @@ def refresh_images():
             mtime = os.path.getmtime(f)
             debug_info.append(f"{os.path.basename(f)}: {datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')}")
         
-        logger.debug(f"Imágenes ordenadas por mtime (más reciente primero): {debug_info}")
+        logger.debug(f"Imágenes ordenadas: {debug_info}")
         
         # Obtener datos para cada imagen
         image_data = []
@@ -501,6 +689,88 @@ def delete_image(filename):
                     logger.info(f"Miniatura eliminada: {thumb_path}")
                 except Exception as thumb_err:
                     logger.warning(f"No se pudo eliminar la miniatura {thumb_path}: {str(thumb_err)}")
+            
+            # Actualizar el archivo orden.csv
+            csv_path = 'orden.csv'
+            if os.path.exists(csv_path):
+                try:
+                    # Variables para rastrear información importante
+                    imagen_eliminada_posicion = None
+                    tenia_marcador = False
+                    filas_actualizadas = []
+                    
+                    # Leer el CSV actual
+                    with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+                        reader = csv.reader(csvfile)
+                        headers = next(reader)  # Leer encabezados
+                        filas_actualizadas.append(headers)
+                        
+                        # Verificar estructura del CSV
+                        if 'nombre_img' not in headers or 'posicion' not in headers or 'marcador_posicion' not in headers:
+                            logger.error(f"Estructura de CSV incorrecta: {headers}")
+                            raise ValueError("Estructura de CSV incorrecta")
+                            
+                        nombre_idx = headers.index('nombre_img')
+                        posicion_idx = headers.index('posicion')
+                        marcador_idx = headers.index('marcador_posicion')
+                        
+                        # Leer todas las filas excepto la de la imagen a eliminar
+                        for row in reader:
+                            if len(row) <= max(nombre_idx, posicion_idx, marcador_idx):
+                                continue  # Fila inválida
+                                
+                            if row[nombre_idx] == real_filename:
+                                # Esta es la imagen que estamos eliminando
+                                try:
+                                    imagen_eliminada_posicion = int(row[posicion_idx])
+                                    # Verificar si tenía el marcador
+                                    if row[marcador_idx].strip():
+                                        tenia_marcador = True
+                                except (ValueError, TypeError):
+                                    pass
+                                # No añadimos esta fila a filas_actualizadas
+                            else:
+                                # Mantener esta fila
+                                filas_actualizadas.append(row)
+                    
+                    # Si encontramos la posición de la imagen eliminada, reajustar las posiciones
+                    if imagen_eliminada_posicion is not None:
+                        # Reajustar posiciones y marcador
+                        nuevo_marcador_asignado = False
+                        
+                        for i, row in enumerate(filas_actualizadas[1:], 1):  # Omitir encabezados
+                            try:
+                                posicion_actual = int(row[posicion_idx])
+                                
+                                # Ajustar posiciones para las imágenes que estaban después de la eliminada
+                                if posicion_actual > imagen_eliminada_posicion:
+                                    row[posicion_idx] = str(posicion_actual - 1)
+                                
+                                # Si la imagen eliminada tenía el marcador y aún no hemos asignado uno nuevo
+                                if tenia_marcador and not nuevo_marcador_asignado:
+                                    # Asignar el marcador a la primera imagen (posición 1)
+                                    if i == 1:
+                                        row[marcador_idx] = "1"
+                                        nuevo_marcador_asignado = True
+                                        logger.info(f"Marcador reasignado a la imagen en posición 1: {row[nombre_idx]}")
+                            except (ValueError, TypeError, IndexError) as e:
+                                logger.warning(f"Error al procesar fila {i}: {e}")
+                        
+                        # Si no se pudo asignar un nuevo marcador (no hay más imágenes), no hacer nada
+                        
+                        # Escribir el CSV actualizado
+                        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                            writer = csv.writer(csvfile)
+                            writer.writerows(filas_actualizadas)
+                            
+                        logger.info(f"Archivo orden.csv actualizado después de eliminar {real_filename}")
+                    else:
+                        logger.warning(f"No se encontró la imagen {real_filename} en el CSV")
+                        
+                except Exception as csv_err:
+                    logger.error(f"Error al actualizar CSV después de eliminar: {str(csv_err)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
             
             return jsonify({
                 'success': True, 
@@ -918,6 +1188,18 @@ def clear_input():
                         logger.info(f"Miniatura huérfana eliminada: {thumb_path}")
                     except Exception as thumb_err:
                         logger.error(f"Error al eliminar miniatura huérfana {thumb_path}: {str(thumb_err)}")
+        
+        # Limpiar el archivo orden.csv
+        try:
+            csv_path = 'orden.csv'
+            if os.path.exists(csv_path):
+                with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    # Solo escribir los encabezados
+                    writer.writerow(['nombre_img', 'posicion', 'marcador_posicion'])
+                logger.info("Archivo orden.csv limpiado")
+        except Exception as csv_err:
+            logger.error(f"Error al limpiar orden.csv: {str(csv_err)}")
         
         logger.info(f"Se eliminaron {files_count} archivos de la carpeta input y {thumbnails_count + orphaned_thumbnails} miniaturas")
         return jsonify({
@@ -1550,22 +1832,178 @@ def download_export(filename):
         logger.error(f"Error al descargar archivo de exportación: {str(e)}")
         return "Error al descargar el archivo", 500
 
+@app.route('/orden.csv')
+@login_required
+def serve_order_csv():
+    """Sirve el archivo orden.csv."""
+    try:
+        csv_path = 'orden.csv'
+        if not os.path.exists(csv_path):
+            # Si el archivo no existe, crearlo con encabezados
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['nombre_img', 'posicion', 'marcador_posicion'])
+            logger.info("Archivo orden.csv creado porque no existía")
+        
+        return send_file(
+            csv_path,
+            mimetype='text/csv',
+            as_attachment=False,
+            download_name='orden.csv'
+        )
+    except Exception as e:
+        logger.error(f"Error al servir archivo orden.csv: {str(e)}")
+        return "Error al servir el archivo orden.csv", 500
+
+@app.route('/update_order', methods=['POST'])
+@login_required
+def update_order():
+    """Actualiza el orden de las imágenes en el archivo orden.csv."""
+    try:
+        data = request.json
+        csv_content = data.get('csvContent')
+        
+        if not csv_content:
+            return jsonify({
+                'success': False,
+                'error': 'No se recibió contenido CSV'
+            }), 400
+        
+        # Escribir el nuevo contenido CSV
+        csv_path = 'orden.csv'
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            csvfile.write(csv_content)
+        
+        # Analizar el contenido para extraer el marcador de posición
+        rows = csv_content.split('\n')
+        marcador_posicion = 1  # Valor predeterminado
+        
+        # Buscar el marcador en las filas (omitir la primera fila de encabezados)
+        if len(rows) > 1:
+            for i in range(1, len(rows)):
+                row = rows[i]
+                if not row.strip():
+                    continue
+                    
+                columns = row.split(',')
+                if len(columns) >= 3 and columns[2].strip():
+                    try:
+                        marcador_posicion = int(columns[2])
+                        logger.info(f"Marcador de posición actualizado a: {marcador_posicion}")
+                        break  # Solo necesitamos encontrar un marcador
+                    except ValueError:
+                        pass
+        
+        logger.info(f"Archivo orden.csv actualizado manualmente desde la interfaz. Marcador en posición {marcador_posicion}")
+        
+        # Verificar que todas las imágenes en el CSV existen
+        folder = app.config['UPLOAD_FOLDER']
+        
+        # Saltar la primera fila (encabezados)
+        if len(rows) > 1:
+            rows = rows[1:]
+        
+        missing_files = []
+        for row in rows:
+            if not row.strip():
+                continue
+                
+            columns = row.split(',')
+            if len(columns) >= 1:
+                filename = columns[0]
+                file_path = os.path.join(folder, filename)
+                
+                if not os.path.exists(file_path):
+                    missing_files.append(filename)
+        
+        if missing_files:
+            logger.warning(f"Archivos no encontrados en el orden actualizado: {missing_files}")
+            return jsonify({
+                'success': True,
+                'warning': f'Algunos archivos no existen: {", ".join(missing_files)}'
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Orden actualizado correctamente',
+            'marcador_posicion': marcador_posicion
+        })
+    except Exception as e:
+        error_msg = f"Error al actualizar orden: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
+
 @app.route('/generar_carpeta', methods=['POST'])
 @login_required
 def generar_carpeta():
     """Crea una carpeta con hash MD5 y mueve las imágenes actuales a ella."""
     try:
+        # Obtener el identificador del lote desde la solicitud JSON
+        data = request.json or {}
+        lote_identifier = data.get('loteIdentifier', 'LOTE1')
+        logger.info(f"Generando carpeta con identificador de lote: {lote_identifier}")
+        
+        # Verificar imágenes disponibles en input
+        input_images = glob.glob('input/*.jpg') + glob.glob('input/*.jpeg')
+        logger.info(f"Imágenes disponibles en input: {len(input_images)}")
+        for img in input_images[:5]:  # Mostrar solo las primeras 5 para no saturar el log
+            logger.info(f"Imagen en input: {os.path.basename(img)}")
+        
+        # Verificar el contenido actual de orden.csv
+        try:
+            if os.path.exists('orden.csv'):
+                with open('orden.csv', 'r', newline='', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    next(reader)  # Saltar encabezados
+                    csv_rows = list(reader)
+                    logger.info(f"Contenido de orden.csv antes de generar carpeta: {len(csv_rows)} filas")
+                    for row in csv_rows[:10]:  # Mostrar solo las primeras 10 filas
+                        logger.info(f"CSV fila: {row}")
+            else:
+                logger.warning("No existe el archivo orden.csv")
+        except Exception as csv_read_err:
+            logger.error(f"Error al leer orden.csv para verificación: {str(csv_read_err)}")
+        
         # Crear carpeta con nombre hash MD5
-        result = create_new_folder()
+        result = create_new_folder(lote_prefix=lote_identifier)
         
         if not result['success']:
+            logger.error(f"Error al crear carpeta: {result.get('error', 'Error desconocido')}")
             return jsonify(result), 500
             
         folder_name = result['folder_name']
         folder_path = result['folder_path']
+        logger.info(f"Carpeta creada: {folder_name} en ruta: {folder_path}")
         
-        # Mover imágenes a la carpeta
-        moved_count = move_images_to_folder(folder_path)
+        # Mover imágenes a la carpeta y renombrarlas según el orden
+        logger.info("=== INICIANDO PROCESO DE MOVER Y RENOMBRAR IMÁGENES ===")
+        
+        # Importar la función desde el módulo para asegurar que usamos la versión correcta
+        from functions.boton_digitalizacion import move_images_to_folder as move_images_with_rename
+        moved_count = move_images_with_rename(folder_path)
+        
+        logger.info(f"=== PROCESO COMPLETADO: {moved_count} imágenes movidas y renombradas ===")
+        
+        # Verificar las imágenes en la carpeta de destino
+        dest_images = glob.glob(os.path.join(folder_path, '*.jpg')) + glob.glob(os.path.join(folder_path, '*.jpeg'))
+        logger.info(f"Imágenes en carpeta destino: {len(dest_images)}")
+        for img in sorted(dest_images)[:10]:  # Mostrar solo las primeras 10 para no saturar el log
+            logger.info(f"Imagen en destino: {os.path.basename(img)}")
+        
+        # Limpiar el archivo orden.csv después de mover las imágenes
+        try:
+            with open('orden.csv', 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                # Solo escribir los encabezados
+                writer.writerow(['nombre_img', 'posicion', 'marcador_posicion'])
+            logger.info("Archivo orden.csv limpiado después de mover imágenes")
+        except Exception as csv_err:
+            logger.error(f"Error al limpiar orden.csv después de mover imágenes: {str(csv_err)}")
         
         return jsonify({
             'success': True, 
@@ -2303,6 +2741,110 @@ def generate_folder_name():
     print(f"Nombre de carpeta generado: {folder_name}")
     
     return folder_name
+
+@app.route('/update_marker/<filename>', methods=['POST'])
+@login_required
+def update_marker(filename):
+    """Actualiza el marcador de posición para continuar desde una imagen específica."""
+    try:
+        # Verificar que la imagen existe
+        input_folder = app.config['UPLOAD_FOLDER']
+        file_path = os.path.join(input_folder, filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({
+                'success': False,
+                'error': f"Imagen {filename} no encontrada"
+            }), 404
+        
+        # Leer el archivo CSV actual
+        csv_path = 'orden.csv'
+        if not os.path.exists(csv_path):
+            # Si no existe, crear el archivo con la estructura correcta
+            files = get_latest_images()
+            update_order_csv(files)
+        
+        # Buscar la posición de la imagen en el CSV
+        nueva_posicion = None
+        filas_actualizadas = []
+        
+        with open(csv_path, 'r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.reader(csvfile)
+            headers = next(reader)  # Leer encabezados
+            
+            # Verificar estructura del CSV
+            if 'nombre_img' not in headers or 'posicion' not in headers or 'marcador_posicion' not in headers:
+                return jsonify({
+                    'success': False,
+                    'error': "Estructura del archivo CSV incorrecta"
+                }), 500
+            
+            nombre_idx = headers.index('nombre_img')
+            posicion_idx = headers.index('posicion')
+            marcador_idx = headers.index('marcador_posicion')
+            
+            # Leer todas las filas y encontrar la imagen
+            filas_actualizadas.append(headers)  # Añadir encabezados
+            
+            for row in reader:
+                if len(row) <= max(nombre_idx, posicion_idx, marcador_idx):
+                    continue  # Fila inválida
+                
+                # Limpiar el marcador actual
+                row[marcador_idx] = ""
+                
+                # Si es la imagen objetivo, establecer el nuevo marcador
+                if row[nombre_idx] == filename:
+                    try:
+                        nueva_posicion = int(row[posicion_idx])
+                        row[marcador_idx] = str(nueva_posicion)
+                        logger.info(f"Marcador de posición actualizado a imagen {filename} (posición {nueva_posicion})")
+                    except (ValueError, TypeError):
+                        return jsonify({
+                            'success': False,
+                            'error': f"Posición inválida para la imagen {filename}"
+                        }), 500
+                
+                filas_actualizadas.append(row)
+        
+        if nueva_posicion is None:
+            # La imagen no estaba en el CSV, actualizar todo el CSV
+            logger.warning(f"Imagen {filename} no encontrada en el CSV. Actualizando todo el CSV.")
+            files = get_latest_images()
+            
+            # Encontrar la posición de la imagen en la lista ordenada
+            for i, img_path in enumerate(files, start=1):
+                if os.path.basename(img_path) == filename:
+                    nueva_posicion = i
+                    break
+            
+            if nueva_posicion is None:
+                return jsonify({
+                    'success': False,
+                    'error': f"No se pudo determinar la posición de la imagen {filename}"
+                }), 500
+            
+            # Actualizar el CSV con el nuevo marcador
+            update_order_csv(files)
+        else:
+            # Escribir las filas actualizadas al CSV
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerows(filas_actualizadas)
+        
+        return jsonify({
+            'success': True,
+            'message': f"Marcador de posición actualizado a la imagen {filename} (posición {nueva_posicion})"
+        })
+    except Exception as e:
+        error_msg = f"Error al actualizar marcador: {str(e)}"
+        logger.error(error_msg)
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': error_msg
+        }), 500
 
 if __name__ == '__main__':
     # Verificar que existan las carpetas necesarias
