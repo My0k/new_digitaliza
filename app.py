@@ -529,10 +529,31 @@ def delete_image(filename):
 def rotate_image(filename, direction):
     """Rota una imagen en la dirección especificada."""
     try:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        logger.info(f"Intentando rotar archivo: {file_path} en dirección: {direction}")
+        input_folder = app.config['UPLOAD_FOLDER']
         
-        if os.path.exists(file_path):
+        # Primero intentar con el nombre exacto
+        file_path = os.path.join(input_folder, filename)
+        file_found = os.path.exists(file_path)
+        
+        # Si no se encuentra, buscar el archivo por nombre decodificado o normalizado
+        if not file_found:
+            # Obtener el nombre seguro para comparación
+            secure_name = secure_filename(filename)
+            logger.warning(f"Nombre de archivo potencialmente inseguro para rotación: {filename} -> {secure_name}")
+            
+            # Buscar el archivo en el directorio de entrada
+            for file in os.listdir(input_folder):
+                # Comparar con el nombre original o con el nombre seguro
+                if file == filename or secure_filename(file) == secure_name:
+                    file_path = os.path.join(input_folder, file)
+                    file_found = True
+                    logger.info(f"Archivo para rotación encontrado con nombre alternativo: {file}")
+                    break
+        
+        # Si se encontró el archivo, rotarlo
+        if file_found and os.path.isfile(file_path):
+            logger.info(f"Intentando rotar archivo: {file_path} en dirección: {direction}")
+            
             with Image.open(file_path) as img:
                 if direction == 'left':
                     rotated = img.rotate(90, expand=True)
@@ -540,17 +561,45 @@ def rotate_image(filename, direction):
                     rotated = img.rotate(-90, expand=True)
                 else:
                     logger.warning(f"Dirección de rotación inválida: {direction}")
-                    return jsonify({'error': 'Dirección inválida'}), 400
+                    return jsonify({'success': False, 'error': 'Dirección inválida'}), 400
                 
                 rotated.save(file_path)
                 logger.info(f"Archivo rotado exitosamente: {file_path}")
+                
+                # También eliminar la miniatura si existe para que se regenere
+                real_filename = os.path.basename(file_path)
+                thumb_name = f"thumb_{real_filename}"
+                thumb_path = os.path.join('miniaturas', thumb_name)
+                
+                # Si la miniatura no se encuentra con el nombre exacto, buscar por nombre normalizado
+                if not os.path.exists(thumb_path) and os.path.exists('miniaturas'):
+                    secure_thumb = f"thumb_{secure_name}"
+                    for thumb in os.listdir('miniaturas'):
+                        if thumb == thumb_name or secure_filename(thumb) == secure_thumb:
+                            thumb_path = os.path.join('miniaturas', thumb)
+                            break
+                
+                # Eliminar miniatura para que se regenere con la imagen rotada
+                if os.path.exists(thumb_path):
+                    try:
+                        os.remove(thumb_path)
+                        logger.info(f"Miniatura eliminada para regeneración: {thumb_path}")
+                    except Exception as thumb_err:
+                        logger.warning(f"No se pudo eliminar la miniatura {thumb_path}: {str(thumb_err)}")
+                
                 return jsonify({'success': True}), 200
         
-        logger.warning(f"Archivo no encontrado para rotar: {file_path}")
-        return jsonify({'error': 'Archivo no encontrado'}), 404
+        logger.warning(f"Archivo no encontrado para rotar: {filename}")
+        return jsonify({
+            'success': False, 
+            'error': 'Archivo no encontrado', 
+            'path': file_path if 'file_path' in locals() else os.path.join(input_folder, filename)
+        }), 404
     except Exception as e:
         logger.error(f"Error al rotar archivo {filename}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/scan')
 @login_required

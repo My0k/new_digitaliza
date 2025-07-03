@@ -26,11 +26,19 @@
                 <!-- Las imágenes se cargarán aquí dinámicamente en 2 columnas -->
             </div>
             
-            <!-- Botón para mostrar todas las imágenes -->
-            <div class="text-center mt-4" id="showMoreContainer" style="display: none;">
-                <button id="showAllImagesBtn" class="btn btn-outline-primary">
-                    <i class="fas fa-images me-1"></i> Mostrar todas las imágenes
-                </button>
+            <!-- Paginación -->
+            <div class="d-flex justify-content-between align-items-center mt-4" id="paginationControls" style="display: none;">
+                <div>
+                    <span class="text-muted">Mostrando <span id="currentRangeStart">1</span>-<span id="currentRangeEnd">10</span> de <span id="totalImages">0</span> imágenes</span>
+                </div>
+                <div class="btn-group">
+                    <button id="prevPageBtn" class="btn btn-outline-secondary" disabled>
+                        <i class="fas fa-chevron-left"></i> Anterior
+                    </button>
+                    <button id="nextPageBtn" class="btn btn-outline-secondary" disabled>
+                        Siguiente <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -81,9 +89,13 @@
 {% block extra_scripts %}
 <script>
     // Variable para controlar si estamos mostrando todas las imágenes o solo las recientes
-    let showingAllImages = false;
+    let showingAllImages = true; // Cambiado a true por defecto para usar paginación
     // Total de imágenes disponibles
     let totalImages = 0;
+    // Variables para paginación
+    let currentPage = 1;
+    let imagesPerPage = 10;
+    let allImages = []; // Almacenar todas las imágenes
     
     document.addEventListener('DOMContentLoaded', function() {
         // Iniciar para la vista de digitalización
@@ -99,49 +111,19 @@
             window.location.reload();
         });
         
-        // Configurar botón para mostrar todas las imágenes
-        document.getElementById('showAllImagesBtn').addEventListener('click', function() {
-            console.log("Botón Mostrar todas las imágenes clickeado");
-            showingAllImages = true;  // Establecer explícitamente a true
-            
-            // Desactivar el refresh automático si está activado
-            const autoRefreshToggle = document.getElementById('autoRefreshToggle');
-            if (autoRefreshToggle.checked) {
-                console.log("Desactivando refresh automático al mostrar todas las imágenes");
-                autoRefreshToggle.checked = false;
-                
-                // Disparar el evento change para que se ejecute el código de desactivación
-                const changeEvent = new Event('change');
-                autoRefreshToggle.dispatchEvent(changeEvent);
-                
-                // También podemos mostrar un mensaje al usuario
-                const notification = document.createElement('div');
-                notification.className = 'alert alert-info alert-dismissible fade show mt-2';
-                notification.innerHTML = `
-                    <small>Refresh automático desactivado para permitir ver todas las imágenes</small>
-                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
-                `;
-                document.getElementById('showMoreContainer').appendChild(notification);
-                
-                // Auto-ocultar la notificación después de 5 segundos
-                setTimeout(() => {
-                    notification.classList.remove('show');
-                    setTimeout(() => notification.remove(), 5000);
-                }, 5000);
+        // Configurar botones de paginación
+        document.getElementById('prevPageBtn').addEventListener('click', function() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderCurrentPage();
             }
-            
-            // Cambiar el botón a estado de carga
-            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Cargando...';
-            this.disabled = true;
-            
-            // Forzar una actualización completa
-            refreshImages();
-            
-            // Agregar un mensaje de debug
-            console.log("Después de refreshImages, showingAllImages =", showingAllImages);
-            
-            // El botón se ocultará después de que las imágenes se carguen completamente en el método refreshImages
-            // (no lo ocultamos aquí para mostrar el estado de carga)
+        });
+        
+        document.getElementById('nextPageBtn').addEventListener('click', function() {
+            if (currentPage < Math.ceil(allImages.length / imagesPerPage)) {
+                currentPage++;
+                renderCurrentPage();
+            }
         });
         
         // Configurar toggle de refresh automático
@@ -198,8 +180,8 @@
         });
         
         // Actualizar inmediatamente las imágenes al cargar la página
-        // Por defecto solo muestra las 4 más recientes
-        showingAllImages = false;
+        // Ahora cargamos todas las imágenes para paginarlas
+        showingAllImages = true;
         
         // Agregamos un pequeño delay para asegurar que todo esté listo
         setTimeout(function() {
@@ -213,7 +195,7 @@
     
     // Función para verificar si hay imágenes y actualizar el estado del botón
     function checkImagesForFolder() {
-        const imageCount = document.querySelectorAll('.image-card').length;
+        const imageCount = allImages.length;
         const generateBtn = document.getElementById('generateFolderBtn');
         const noImagesMsg = document.getElementById('noImagesMessage');
         
@@ -228,19 +210,58 @@
     
     // Función para actualizar la cuadrícula de imágenes
     function updateImageGrid(images) {
+        // Guardar todas las imágenes
+        allImages = images || [];
+        
+        // Actualizar contador total
+        totalImages = allImages.length;
+        document.getElementById('totalImages').textContent = totalImages;
+        
+        // Mostrar/ocultar controles de paginación
+        const paginationControls = document.getElementById('paginationControls');
+        if (totalImages > imagesPerPage) {
+            paginationControls.style.display = 'flex';
+        } else {
+            paginationControls.style.display = 'none';
+        }
+        
+        // Resetear a la primera página cuando se actualiza la lista completa
+        currentPage = 1;
+        
+        // Renderizar la página actual
+        renderCurrentPage();
+    }
+    
+    // Función para renderizar la página actual de imágenes
+    function renderCurrentPage() {
         const grid = document.getElementById('imageGrid');
         grid.innerHTML = '';
         
         // Si no hay imágenes
-        if (!images || images.length === 0) {
+        if (!allImages || allImages.length === 0) {
             grid.innerHTML = '<div class="col-12 text-center p-5"><p>No hay imágenes disponibles</p></div>';
             return;
         }
         
-        console.log("Actualizando grid con " + images.length + " imágenes");
+        // Calcular índices de inicio y fin para la página actual
+        const startIndex = (currentPage - 1) * imagesPerPage;
+        const endIndex = Math.min(startIndex + imagesPerPage, allImages.length);
+        
+        // Actualizar información de rango
+        document.getElementById('currentRangeStart').textContent = startIndex + 1;
+        document.getElementById('currentRangeEnd').textContent = endIndex;
+        
+        // Actualizar estado de los botones de paginación
+        document.getElementById('prevPageBtn').disabled = currentPage === 1;
+        document.getElementById('nextPageBtn').disabled = endIndex >= allImages.length;
+        
+        // Obtener imágenes para la página actual
+        const currentImages = allImages.slice(startIndex, endIndex);
+        
+        console.log(`Mostrando imágenes ${startIndex + 1}-${endIndex} de ${allImages.length}`);
         
         // Mostrar las imágenes en la cuadrícula (en 2 columnas)
-        images.forEach(image => {
+        currentImages.forEach(image => {
             const col = document.createElement('div');
             col.className = 'col';
             
@@ -276,27 +297,17 @@
     
     // Función para refrescar las imágenes
     function refreshImages(resetView = false) {
-        // Si se pide resetear la vista, volvemos a mostrar solo las recientes
-        if (resetView) {
-            showingAllImages = false;
-            document.getElementById('showMoreContainer').style.display = 'block';
-            const showAllBtn = document.getElementById('showAllImagesBtn');
-            showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
-            showAllBtn.disabled = false;
-        }
+        // No necesitamos resetear la vista ya que ahora siempre mostramos todas las imágenes con paginación
+        showingAllImages = true;
 
-        // Determinar si mostrar todas las imágenes o solo las 4 más recientes
-        const limit = showingAllImages ? null : 4;
+        // Mostrar indicador de carga
+        const grid = document.getElementById('imageGrid');
+        grid.innerHTML = '<div class="col-12 text-center p-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-3">Cargando imágenes...</p></div>';
         
-        console.log(`Solicitando imágenes ${limit ? 'con límite ' + limit : 'sin límite'} (showingAllImages=${showingAllImages})`);
+        console.log(`Solicitando todas las imágenes para paginación`);
         
-        // Asegurarse de que cuando showingAllImages es true, realmente no se envíe ningún límite
-        let url = '/refresh?sort_by=creation';
-        if (!showingAllImages && limit) {
-            url += `&limit=${limit}`;
-        }
-        
-        fetch(url)
+        // Solicitar todas las imágenes para la paginación
+        fetch('/refresh?sort_by=creation')
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -308,72 +319,100 @@
                     // Actualizar la hora de última actualización
                     document.getElementById('lastUpdateTime').textContent = data.timestamp;
                     
-                    // Guardar el total de imágenes
-                    totalImages = data.total;
-                    
-                    // Mostrar u ocultar el botón "Mostrar todas" según corresponda
-                    const showMoreContainer = document.getElementById('showMoreContainer');
-                    
-                    if (showingAllImages) {
-                        // Si estamos mostrando todas, ocultamos el contenedor del botón
-                        showMoreContainer.style.display = 'none';
-                    } else if (totalImages > 4) {
-                        // Si no estamos mostrando todas y hay más de 4 imágenes
-                        showMoreContainer.style.display = 'block';
-                        // Asegurarse de que el botón esté en su estado normal
-                        const showAllBtn = document.getElementById('showAllImagesBtn');
-                        showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
-                        showAllBtn.disabled = false;
-                    } else {
-                        // Si hay 4 o menos imágenes, no mostramos el botón
-                        showMoreContainer.style.display = 'none';
-                    }
-                    
                     // Verificar si hay imágenes para habilitar/deshabilitar el botón de generar carpeta
                     checkImagesForFolder();
                 } else {
                     console.error('Error al obtener imágenes:', data.error);
-                    // En caso de error, restaurar el botón para que el usuario pueda intentarlo de nuevo
-                    if (showingAllImages) {
-                        const showAllBtn = document.getElementById('showAllImagesBtn');
-                        if (showAllBtn) {
-                            showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
-                            showAllBtn.disabled = false;
-                            document.getElementById('showMoreContainer').style.display = 'block';
-                        }
-                    }
+                    grid.innerHTML = `<div class="col-12 text-center p-5"><div class="alert alert-danger">Error al cargar imágenes: ${data.error}</div></div>`;
                 }
             })
             .catch(error => {
                 console.error('Error al refrescar imágenes:', error);
-                // Restaurar el botón en caso de error
-                if (showingAllImages) {
-                    const showAllBtn = document.getElementById('showAllImagesBtn');
-                    if (showAllBtn) {
-                        showAllBtn.innerHTML = '<i class="fas fa-images me-1"></i> Mostrar todas las imágenes';
-                        showAllBtn.disabled = false;
-                        document.getElementById('showMoreContainer').style.display = 'block';
-                    }
-                    // Volver a modo de vista limitada ya que la carga falló
-                    showingAllImages = false;
-                }
+                grid.innerHTML = `<div class="col-12 text-center p-5"><div class="alert alert-danger">Error al cargar imágenes: ${error.message}</div></div>`;
             });
     }
     
     // Esta función debe ser accesible globalmente para los botones generados dinámicamente
     function rotateImage(filename, direction) {
-        fetch(`/rotate/${filename}/${direction}`)
-            .then(response => response.json())
+        // Mostrar indicador de carga en el botón de rotar
+        const rotateButtons = document.querySelectorAll(`button[onclick="rotateImage('${filename}', '${direction}')"]`);
+        let originalContent = direction === 'left' ? '<i class="fas fa-undo"></i>' : '<i class="fas fa-redo"></i>';
+        if (rotateButtons.length > 0) {
+            originalContent = rotateButtons[0].innerHTML;
+            rotateButtons.forEach(btn => {
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                btn.disabled = true;
+            });
+        }
+        
+        fetch(`/rotate/${encodeURIComponent(filename)}/${direction}`)
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        // Si el archivo no se encuentra, actualizar la vista de todas formas
+                        console.warn(`Archivo no encontrado para rotar: ${filename}. Actualizando vista de todas formas.`);
+                        setTimeout(refreshImages, 500);
+                        throw new Error('Archivo no encontrado. La vista se actualizará de todas formas.');
+                    }
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
+                    // Mostrar notificación de éxito
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-success alert-dismissible fade show mt-2';
+                    notification.innerHTML = `
+                        <small>Imagen "${filename}" rotada correctamente</small>
+                        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.getElementById('imageGrid').prepend(notification);
+                    
+                    // Auto-ocultar la notificación después de 2 segundos
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        setTimeout(() => notification.remove(), 500);
+                    }, 2000);
+                    
                     // Actualizar imágenes después de la rotación
-                    setTimeout(refreshImages, 500); // Esperar para que se procese la rotación
+                    setTimeout(refreshImages, 500);
                 } else {
                     console.error('Error al rotar imagen:', data.error);
+                    
+                    // Mostrar notificación de error
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+                    notification.innerHTML = `
+                        <small>Error al rotar imagen: ${data.error}</small>
+                        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.getElementById('imageGrid').prepend(notification);
+                    
+                    // Restaurar botones si hay error
+                    rotateButtons.forEach(btn => {
+                        btn.innerHTML = originalContent;
+                        btn.disabled = false;
+                    });
                 }
             })
             .catch(error => {
                 console.error('Error en la solicitud de rotación:', error);
+                
+                // Mostrar notificación de error
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-warning alert-dismissible fade show mt-2';
+                notification.innerHTML = `
+                    <small>${error.message}</small>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.getElementById('imageGrid').prepend(notification);
+                
+                // Restaurar botones si hay error
+                rotateButtons.forEach(btn => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+                });
             });
     }
     
