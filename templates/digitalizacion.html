@@ -380,20 +380,179 @@
     // Esta función debe ser accesible globalmente para los botones generados dinámicamente
     function deleteImage(filename) {
         if (confirm(`¿Está seguro de eliminar la imagen ${filename}?`)) {
-            fetch(`/delete/${filename}`)
-                .then(response => response.json())
+            // Mostrar indicador de carga en el botón de eliminar
+            const deleteButtons = document.querySelectorAll(`button[onclick="deleteImage('${filename}')"]`);
+            let originalContent = '<i class="fas fa-trash"></i>';
+            if (deleteButtons.length > 0) {
+                originalContent = deleteButtons[0].innerHTML;
+                deleteButtons.forEach(btn => {
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    btn.disabled = true;
+                });
+            }
+            
+            fetch(`/delete/${encodeURIComponent(filename)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            // Si el archivo no se encuentra, actualizar la vista de todas formas
+                            // ya que podría ser un problema de nombres de archivos con caracteres especiales
+                            console.warn(`Archivo no encontrado: ${filename}. Actualizando vista de todas formas.`);
+                            setTimeout(refreshImages, 500);
+                            throw new Error('Archivo no encontrado. La vista se actualizará de todas formas.');
+                        }
+                        throw new Error(`Error HTTP: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
+                        // Mostrar notificación de éxito
+                        const notification = document.createElement('div');
+                        notification.className = 'alert alert-success alert-dismissible fade show mt-2';
+                        notification.innerHTML = `
+                            <small>Imagen "${filename}" eliminada correctamente</small>
+                            <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                        `;
+                        document.getElementById('imageGrid').prepend(notification);
+                        
+                        // Auto-ocultar la notificación después de 3 segundos
+                        setTimeout(() => {
+                            notification.classList.remove('show');
+                            setTimeout(() => notification.remove(), 500);
+                        }, 3000);
+                        
                         // Actualizar imágenes después de la eliminación
-                        refreshImages();
+                        setTimeout(refreshImages, 500);
                     } else {
                         console.error('Error al eliminar imagen:', data.error);
+                        
+                        // Mostrar notificación de error
+                        const notification = document.createElement('div');
+                        notification.className = 'alert alert-danger alert-dismissible fade show mt-2';
+                        notification.innerHTML = `
+                            <small>Error al eliminar imagen: ${data.error}</small>
+                            <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                        `;
+                        document.getElementById('imageGrid').prepend(notification);
+                        
+                        // Auto-ocultar la notificación después de 5 segundos
+                        setTimeout(() => {
+                            notification.classList.remove('show');
+                            setTimeout(() => notification.remove(), 500);
+                        }, 5000);
+                        
+                        // Restaurar botones si hay error
+                        deleteButtons.forEach(btn => {
+                            btn.innerHTML = originalContent;
+                            btn.disabled = false;
+                        });
+                        
+                        // Actualizar la vista de todas formas después de un tiempo
+                        setTimeout(refreshImages, 2000);
                     }
                 })
                 .catch(error => {
                     console.error('Error en la solicitud de eliminación:', error);
+                    
+                    // Mostrar notificación de error
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-warning alert-dismissible fade show mt-2';
+                    notification.innerHTML = `
+                        <small>${error.message}</small>
+                        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.getElementById('imageGrid').prepend(notification);
+                    
+                    // Auto-ocultar la notificación después de 5 segundos
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        setTimeout(() => notification.remove(), 500);
+                    }, 5000);
+                    
+                    // Restaurar botones si hay error
+                    deleteButtons.forEach(btn => {
+                        btn.innerHTML = originalContent;
+                        btn.disabled = false;
+                    });
                 });
         }
+    }
+
+    // Función para escanear documentos
+    function scanDocuments() {
+        // Mostrar indicador de carga en el botón
+        const scanBtn = document.getElementById('scanBtn');
+        const originalContent = scanBtn.innerHTML;
+        scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Escaneando...';
+        scanBtn.disabled = true;
+        
+        // Llamar al endpoint de escaneo
+        fetch('/scan')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Mostrar mensaje de éxito
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-success alert-dismissible fade show';
+                    notification.innerHTML = `
+                        <small>Escaneo iniciado correctamente</small>
+                        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.querySelector('.card-header').appendChild(notification);
+                    
+                    // Auto-ocultar la notificación después de 3 segundos
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        setTimeout(() => notification.remove(), 500);
+                    }, 3000);
+                    
+                    // Actualizar imágenes después de un breve retraso
+                    setTimeout(refreshImages, 2000);
+                    
+                    // Restaurar el botón después de un tiempo
+                    setTimeout(() => {
+                        scanBtn.innerHTML = originalContent;
+                        scanBtn.disabled = false;
+                    }, 3000);
+                } else {
+                    console.error('Error al iniciar escaneo:', data.error);
+                    
+                    // Mostrar mensaje de error
+                    const notification = document.createElement('div');
+                    notification.className = 'alert alert-danger alert-dismissible fade show';
+                    notification.innerHTML = `
+                        <small>Error al iniciar escaneo: ${data.error}</small>
+                        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                    `;
+                    document.querySelector('.card-header').appendChild(notification);
+                    
+                    // Restaurar el botón
+                    scanBtn.innerHTML = originalContent;
+                    scanBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error en la solicitud de escaneo:', error);
+                
+                // Mostrar mensaje de error
+                const notification = document.createElement('div');
+                notification.className = 'alert alert-danger alert-dismissible fade show';
+                notification.innerHTML = `
+                    <small>Error en la solicitud: ${error.message}</small>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.querySelector('.card-header').appendChild(notification);
+                
+                // Restaurar el botón
+                scanBtn.innerHTML = originalContent;
+                scanBtn.disabled = false;
+            });
     }
 </script>
 {% endblock %} 

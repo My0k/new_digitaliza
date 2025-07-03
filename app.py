@@ -436,19 +436,93 @@ def check_updates():
 def delete_image(filename):
     """Elimina una imagen específica."""
     try:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        logger.info(f"Intentando eliminar archivo: {file_path}")
+        input_folder = app.config['UPLOAD_FOLDER']
+        thumbnails_folder = 'miniaturas'
         
-        if os.path.exists(file_path):
+        # Asegurar que las carpetas existen
+        if not os.path.exists(input_folder):
+            logger.warning(f"La carpeta input no existe: {input_folder}")
+            return jsonify({
+                'success': False,
+                'error': 'Carpeta de entrada no encontrada'
+            }), 404
+        
+        # Primero intentar con el nombre exacto
+        file_path = os.path.join(input_folder, filename)
+        file_found = os.path.exists(file_path)
+        
+        # Si no se encuentra, buscar el archivo por nombre decodificado o normalizado
+        if not file_found:
+            # Obtener el nombre seguro para comparación
+            secure_name = secure_filename(filename)
+            logger.warning(f"Nombre de archivo potencialmente inseguro: {filename} -> {secure_name}")
+            
+            # Buscar el archivo en el directorio de entrada
+            for file in os.listdir(input_folder):
+                # Comparar con el nombre original o con el nombre seguro
+                if file == filename or secure_filename(file) == secure_name:
+                    file_path = os.path.join(input_folder, file)
+                    file_found = True
+                    logger.info(f"Archivo encontrado con nombre alternativo: {file}")
+                    break
+        
+        # Si se encontró el archivo, eliminarlo
+        if file_found and os.path.isfile(file_path):
+            # Verificar que es una imagen
+            if not file_path.lower().endswith(('.jpg', '.jpeg')):
+                logger.error(f"El archivo {file_path} no es una imagen JPG")
+                return jsonify({
+                    'success': False, 
+                    'error': 'El archivo no es una imagen JPG válida'
+                }), 400
+            
+            # Obtener el nombre real del archivo (puede ser diferente del nombre en la URL)
+            real_filename = os.path.basename(file_path)
+            
+            # Eliminar el archivo
             os.remove(file_path)
             logger.info(f"Archivo eliminado exitosamente: {file_path}")
-            return jsonify({'success': True, 'message': f'Archivo {filename} eliminado correctamente'}), 200
+            
+            # También eliminar la miniatura si existe
+            thumb_name = f"thumb_{real_filename}"
+            thumb_path = os.path.join(thumbnails_folder, thumb_name)
+            
+            # Si la miniatura no se encuentra con el nombre exacto, buscar por nombre normalizado
+            if not os.path.exists(thumb_path) and os.path.exists(thumbnails_folder):
+                secure_thumb = f"thumb_{secure_name}"
+                for thumb in os.listdir(thumbnails_folder):
+                    if thumb == thumb_name or secure_filename(thumb) == secure_thumb:
+                        thumb_path = os.path.join(thumbnails_folder, thumb)
+                        break
+            
+            if os.path.exists(thumb_path):
+                try:
+                    os.remove(thumb_path)
+                    logger.info(f"Miniatura eliminada: {thumb_path}")
+                except Exception as thumb_err:
+                    logger.warning(f"No se pudo eliminar la miniatura {thumb_path}: {str(thumb_err)}")
+            
+            return jsonify({
+                'success': True, 
+                'message': f'Archivo {filename} eliminado correctamente',
+                'deleted_file': real_filename
+            }), 200
         
-        logger.warning(f"Archivo no encontrado para eliminar: {file_path}")
-        return jsonify({'error': 'Archivo no encontrado', 'path': file_path}), 404
+        logger.warning(f"Archivo no encontrado para eliminar: {filename}")
+        return jsonify({
+            'success': False, 
+            'error': 'Archivo no encontrado', 
+            'path': file_path if 'file_path' in locals() else os.path.join(input_folder, filename)
+        }), 404
     except Exception as e:
         logger.error(f"Error al eliminar archivo {filename}: {str(e)}")
-        return jsonify({'error': str(e), 'path': os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))}), 500
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False, 
+            'error': str(e), 
+            'path': os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+        }), 500
 
 @app.route('/rotate/<filename>/<direction>')
 @login_required
@@ -740,23 +814,73 @@ def ocr():
 @app.route('/clear_input')
 @login_required
 def clear_input():
-    """Elimina todas las imágenes de la carpeta input."""
+    """Elimina todas las imágenes de la carpeta input y sus miniaturas."""
     try:
         input_folder = app.config['UPLOAD_FOLDER']
+        thumbnails_folder = 'miniaturas'
+        
+        # Asegurar que las carpetas existen
+        if not os.path.exists(input_folder):
+            logger.warning(f"La carpeta input no existe: {input_folder}")
+            os.makedirs(input_folder, exist_ok=True)
+            
+        if not os.path.exists(thumbnails_folder):
+            logger.warning(f"La carpeta de miniaturas no existe: {thumbnails_folder}")
+            os.makedirs(thumbnails_folder, exist_ok=True)
         
         # Contar archivos antes de eliminar
         files_count = 0
+        thumbnails_count = 0
+        
+        # Eliminar archivos de imagen
         for file in os.listdir(input_folder):
             if file.lower().endswith(('.jpg', '.jpeg')):
                 file_path = os.path.join(input_folder, file)
-                os.remove(file_path)
-                files_count += 1
-                logger.info(f"Archivo eliminado: {file_path}")
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        files_count += 1
+                        logger.info(f"Archivo eliminado: {file_path}")
+                        
+                        # También eliminar la miniatura correspondiente
+                        thumb_name = f"thumb_{file}"
+                        thumb_path = os.path.join(thumbnails_folder, thumb_name)
+                        if os.path.exists(thumb_path):
+                            os.remove(thumb_path)
+                            thumbnails_count += 1
+                            logger.info(f"Miniatura eliminada: {thumb_path}")
+                except Exception as file_err:
+                    logger.error(f"Error al eliminar archivo {file_path}: {str(file_err)}")
         
-        logger.info(f"Se eliminaron {files_count} archivos de la carpeta input")
-        return jsonify({'success': True, 'message': f'Se eliminaron {files_count} archivos'}), 200
+        # Verificar si hay miniaturas huérfanas (sin imagen original)
+        orphaned_thumbnails = 0
+        for thumb in os.listdir(thumbnails_folder):
+            if thumb.startswith('thumb_') and thumb.lower().endswith(('.jpg', '.jpeg')):
+                # Extraer el nombre del archivo original
+                original_name = thumb[6:]  # Quitar el prefijo 'thumb_'
+                original_path = os.path.join(input_folder, original_name)
+                
+                # Si el archivo original no existe, eliminar la miniatura
+                if not os.path.exists(original_path):
+                    try:
+                        thumb_path = os.path.join(thumbnails_folder, thumb)
+                        os.remove(thumb_path)
+                        orphaned_thumbnails += 1
+                        logger.info(f"Miniatura huérfana eliminada: {thumb_path}")
+                    except Exception as thumb_err:
+                        logger.error(f"Error al eliminar miniatura huérfana {thumb_path}: {str(thumb_err)}")
+        
+        logger.info(f"Se eliminaron {files_count} archivos de la carpeta input y {thumbnails_count + orphaned_thumbnails} miniaturas")
+        return jsonify({
+            'success': True, 
+            'message': f'Se eliminaron {files_count} archivos y {thumbnails_count + orphaned_thumbnails} miniaturas',
+            'files_count': files_count,
+            'thumbnails_count': thumbnails_count + orphaned_thumbnails
+        }), 200
     except Exception as e:
         logger.error(f"Error al limpiar la carpeta input: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/buscar_folio/<folio>')
